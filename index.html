@@ -490,7 +490,8 @@
         <div class="nps-score-box">
           <div class="nps-score-num" id="nps-score-num">—</div>
           <div class="nps-score-label">NPS Score</div>
-          <div class="nps-cats" id="nps-cats"></div>
+          <div id="nps-zone-label" style="display:inline-block;margin-top:6px;padding:2px 10px;border-radius:12px;font-size:0.8rem;font-weight:700"></div>
+          <div class="nps-cats" id="nps-cats" style="margin-top:16px"></div>
         </div>
         <div class="nps-right">
           <div class="nps-bar-wrap">
@@ -498,6 +499,18 @@
             <div class="nps-bar" id="nps-bar"></div>
           </div>
           <div class="chart-wrap short"><canvas id="chart-4"></canvas></div>
+          <div style="margin-top:12px">
+            <div class="nps-bar-label">Faixas NPS</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
+              <thead>
+                <tr style="background:#f1f5f9">
+                  <th style="padding:5px 10px;text-align:left;font-weight:600">Faixa</th>
+                  <th style="padding:5px 10px;text-align:left;font-weight:600">Zona</th>
+                </tr>
+              </thead>
+              <tbody id="nps-zona-tabela"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -505,7 +518,7 @@
     <!-- View 6: NPS por Cliente -->
     <div class="view" id="view-5">
       <div class="view-title">NPS por Cliente</div>
-      <div class="view-subtitle">Nota NPS individual por município • Fonte: Google Sheets</div>
+      <div class="view-subtitle">NPS por município (% Promotores − % Detratores) • Fonte: Google Sheets</div>
       <div class="chart-wrap tall"><canvas id="chart-5"></canvas></div>
     </div>
 
@@ -634,7 +647,7 @@ async function loadAllData() {
   const [jiraRes, riscoRes, npsRes, cndRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
-    fetchSheet('NPS'),
+    fetchSheet('NPS_Calculado'),
     fetchCND(),
   ]);
 
@@ -690,28 +703,35 @@ function updateKPIs() {
 
   // NPS
   if (state.nps.length) {
-    const { score } = calcNPS(state.nps);
+    const { score, total } = calcNPS(state.nps);
+    const zone = npsZone(score);
     const el = document.getElementById('kpi-nps');
     el.textContent = score;
-    el.style.color = score >= 50 ? 'var(--green)' : score >= 0 ? 'var(--yellow)' : 'var(--red)';
-    document.getElementById('kpi-nps-sub').textContent = `de ${state.nps.length} respostas`;
+    el.style.color = zone.color;
+    document.getElementById('kpi-nps-sub').textContent = `de ${total} respostas`;
   } else {
     document.getElementById('kpi-nps').textContent = '—';
     document.getElementById('kpi-nps-sub').textContent = 'Dados indisponíveis';
   }
 }
 
+// NPS = % Promotores (9-10) − % Detratores (0-6). Neutros (7-8) não contam.
+// Resultado de -100 a 100. Dados vêm pré-agregados de NPS_Calculado.
 function calcNPS(rows) {
-  let promotores = 0, passivos = 0, detratores = 0;
-  rows.forEach(r => {
-    const nota = parseInt(r.nota);
-    if (nota >= 9)      promotores++;
-    else if (nota >= 7) passivos++;
-    else if (nota >= 0) detratores++;
-  });
-  const total = promotores + passivos + detratores;
-  const score = total > 0 ? Math.round((promotores - detratores) / total * 100) : 0;
-  return { score, promotores, passivos, detratores, total };
+  const total      = rows.reduce((s, r) => s + (parseInt(r.total)      || 0), 0);
+  const promotores = rows.reduce((s, r) => s + (parseInt(r.promotores) || 0), 0);
+  const neutros    = rows.reduce((s, r) => s + (parseInt(r.neutros)    || 0), 0);
+  const detratores = rows.reduce((s, r) => s + (parseInt(r.detratores) || 0), 0);
+  const score = total > 0 ? Math.round((promotores / total) * 100 - (detratores / total) * 100) : 0;
+  return { score, promotores, neutros, detratores, total };
+}
+
+// Faixas NPS: 76-100 Excelência | 51-75 Qualidade | 1-50 Aperfeiçoamento | ≤0 Crítica
+function npsZone(score) {
+  if (score >= 76) return { label: 'Excelência',      color: '#16a34a', bg: '#f0fdf4' };
+  if (score >= 51) return { label: 'Qualidade',       color: '#65a30d', bg: '#f7fee7' };
+  if (score >=  1) return { label: 'Aperfeiçoamento', color: '#ea580c', bg: '#fff7ed' };
+  return               { label: 'Crítica',           color: '#dc2626', bg: '#fef2f2' };
 }
 
 // ============================================================
@@ -1105,19 +1125,28 @@ function renderNPSGeral() {
     return;
   }
 
-  const { score, promotores, passivos, detratores, total } = calcNPS(state.nps);
-  const periodo = [...new Set(state.nps.map(r => r.periodo).filter(Boolean))].pop() || '';
+  const { score, promotores, neutros, detratores, total } = calcNPS(state.nps);
+  const zone = npsZone(score);
 
-  // Score box
+  // Score box + zona
   const numEl = document.getElementById('nps-score-num');
   numEl.textContent = score;
-  numEl.className = 'nps-score-num ' + (score >= 50 ? 'positive' : score >= 0 ? 'neutral' : 'negative');
+  numEl.style.color = zone.color;
+  numEl.className = 'nps-score-num';
+
+  // Zona label (injeta abaixo do score se existir elemento, ou no titulo)
+  const zoneEl = document.getElementById('nps-zone-label');
+  if (zoneEl) {
+    zoneEl.textContent = zone.label;
+    zoneEl.style.color = zone.color;
+    zoneEl.style.background = zone.bg;
+  }
 
   // Categorias
   document.getElementById('nps-cats').innerHTML = [
-    { label: 'Promotores (9–10)', count: promotores, color: '#276749' },
-    { label: 'Passivos (7–8)',    count: passivos,   color: '#D69E2E' },
-    { label: 'Detratores (0–6)', count: detratores, color: '#C53030' },
+    { label: 'Promotores (9–10)', count: promotores, color: '#16a34a' },
+    { label: 'Neutros (7–8)',     count: neutros,    color: '#ca8a04' },
+    { label: 'Detratores (0–6)', count: detratores, color: '#dc2626' },
   ].map(c => `
     <div class="nps-cat">
       <div class="nps-cat-dot" style="background:${c.color}"></div>
@@ -1129,26 +1158,45 @@ function renderNPSGeral() {
 
   // Barra proporcional
   const pProm = total ? promotores / total * 100 : 0;
-  const pPass = total ? passivos  / total * 100 : 0;
+  const pNeu  = total ? neutros    / total * 100 : 0;
   const pDetr = total ? detratores / total * 100 : 0;
   document.getElementById('nps-bar').innerHTML = `
-    <div class="nps-bar-seg" style="width:${pProm}%;background:#276749" title="Promotores: ${promotores}"></div>
-    <div class="nps-bar-seg" style="width:${pPass}%;background:#D69E2E" title="Passivos: ${passivos}"></div>
-    <div class="nps-bar-seg" style="width:${pDetr}%;background:#C53030" title="Detratores: ${detratores}"></div>`;
+    <div class="nps-bar-seg" style="width:${pProm}%;background:#16a34a" title="Promotores: ${promotores}"></div>
+    <div class="nps-bar-seg" style="width:${pNeu}%;background:#ca8a04"  title="Neutros: ${neutros}"></div>
+    <div class="nps-bar-seg" style="width:${pDetr}%;background:#dc2626" title="Detratores: ${detratores}"></div>`;
+
+  // Tabela de zonas NPS — destaca a zona atual
+  const zonaTabEl = document.getElementById('nps-zona-tabela');
+  if (zonaTabEl) {
+    const zonas = [
+      { faixa: '76 a 100', zona: 'Excelência',      color: '#16a34a' },
+      { faixa: '51 a 75',  zona: 'Qualidade',       color: '#65a30d' },
+      { faixa: '1 a 50',   zona: 'Aperfeiçoamento', color: '#ea580c' },
+      { faixa: '-100 a 0', zona: 'Crítica',          color: '#dc2626' },
+    ];
+    zonaTabEl.innerHTML = zonas.map(z => {
+      const ativo = zone.label === z.zona;
+      const rowStyle = ativo ? 'background:' + z.color + '18;font-weight:700' : '';
+      return '<tr style="' + rowStyle + '">' +
+        '<td style="padding:4px 10px;color:' + z.color + ';font-weight:bold">' + z.faixa + '</td>' +
+        '<td style="padding:4px 10px;color:' + z.color + '">' + z.zona + (ativo ? ' ◀' : '') + '</td>' +
+        '</tr>';
+    }).join('');
+  }
 
   // Gráfico de donut
   charts['chart-4'] = new Chart(canvas, {
     type: 'doughnut',
     data: {
-      labels: ['Promotores', 'Passivos', 'Detratores'],
-      datasets: [{ data: [promotores, passivos, detratores], backgroundColor: ['#276749','#D69E2E','#C53030'], borderWidth: 0 }]
+      labels: ['Promotores', 'Neutros', 'Detratores'],
+      datasets: [{ data: [promotores, neutros, detratores], backgroundColor: ['#16a34a','#ca8a04','#dc2626'], borderWidth: 0 }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
         legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } }
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} (${total ? Math.round(ctx.parsed/total*100) : 0}%)` } }
       }
     }
   });
@@ -1166,37 +1214,37 @@ function renderNPSPorCliente() {
     return;
   }
 
-  // Média por município se houver múltiplas respostas, senão nota direta
-  const agg = {};
-  const cnt = {};
-  state.nps.forEach(r => {
-    const m = r.municipio || 'Não informado';
-    agg[m] = (agg[m] || 0) + (parseInt(r.nota) || 0);
-    cnt[m] = (cnt[m] || 0) + 1;
-  });
-  const entries = Object.entries(agg)
-    .map(([m, s]) => [m, Math.round(s / cnt[m])])
-    .sort((a, b) => b[1] - a[1]);
+  // Dados já pré-agregados por município em NPS_Calculado
+  const entries = state.nps
+    .filter(r => r.municipio)
+    .map(r => ({
+      municipio:   r.municipio,
+      nps:         parseInt(r.nps_score) || 0,
+      total:       parseInt(r.total)      || 0,
+      promotores:  parseInt(r.promotores) || 0,
+      neutros:     parseInt(r.neutros)    || 0,
+      detratores:  parseInt(r.detratores) || 0,
+    }))
+    .sort((a, b) => b.nps - a.nps);
 
-  const labels = entries.map(e => e[0]);
-  const values = entries.map(e => e[1]);
-  const colors = values.map(v => v >= 9 ? '#276749' : v >= 7 ? '#D69E2E' : '#C53030');
+  const labels = entries.map(e => e.municipio);
+  const values = entries.map(e => e.nps);
+  const colors = values.map(v => npsZone(v).color);
 
-  // Linha de referência NPS score
-  const { score } = calcNPS(state.nps);
+  const { score: scoreGeral } = calcNPS(state.nps);
+
+  canvas.style.height = Math.max(300, entries.length * 22) + 'px';
 
   charts['chart-5'] = new Chart(canvas, {
     type: 'bar',
     data: {
       labels,
-      datasets: [
-        {
-          label: 'Nota NPS',
-          data: values,
-          backgroundColor: colors,
-          borderRadius: 4,
-        }
-      ]
+      datasets: [{
+        label: 'NPS',
+        data: values,
+        backgroundColor: colors,
+        borderRadius: 3,
+      }]
     },
     options: {
       indexAxis: 'y',
@@ -1205,18 +1253,32 @@ function renderNPSPorCliente() {
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: {
+          title: ctx => ctx[0].label,
           label: ctx => {
-            const nota = ctx.parsed.x;
-            const cat  = nota >= 9 ? 'Promotor' : nota >= 7 ? 'Passivo' : 'Detrator';
-            return ` Nota: ${nota} (${cat})`;
+            const e = entries[ctx.dataIndex];
+            const z = npsZone(e.nps);
+            return [
+              ` NPS: ${e.nps} — ${z.label}`,
+              ` Promotores: ${e.promotores} | Neutros: ${e.neutros} | Detratores: ${e.detratores}`,
+              ` Total respostas: ${e.total}`,
+            ];
           }
-        }}
+        }},
+        annotation: scoreGeral !== undefined ? {
+          annotations: {
+            mediaLine: {
+              type: 'line', scaleID: 'x', value: scoreGeral,
+              borderColor: '#1E3A5F', borderWidth: 1.5, borderDash: [4,3],
+              label: { content: `Média ${scoreGeral}`, display: true, position: 'end', font: { size: 10 } }
+            }
+          }
+        } : {}
       },
       scales: {
         x: {
-          min: 0, max: 10,
-          grid: { color: '#F0F2F5' },
-          ticks: { stepSize: 1 }
+          min: -100, max: 100,
+          grid: { color: ctx => ctx.tick.value === 0 ? '#94a3b8' : '#F0F2F5' },
+          ticks: { stepSize: 25, callback: v => v }
         },
         y: { ticks: { font: { size: 11 } } }
       }

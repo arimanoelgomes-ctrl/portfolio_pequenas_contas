@@ -84,6 +84,7 @@ const FIELD_VERTICAL  = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
 const SHEET_TAB_NAME  = 'Jira_Chamados';
 const CND_TAB_NAME    = 'CND_Municipios';
 const CND_SHEET_ID    = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
+const NPS_TAB_NAME    = 'NPS_Calculado';
 const PAGE_SIZE       = 100;
 const SLEEP_MS        = 200;
 
@@ -100,6 +101,7 @@ function onTimeTrigger() {
     writeJiraChamados(rows);
     Logger.log(`  Jira: ${rows.length} linhas gravadas`);
     fetchAndStoreCND();
+    fetchAndStoreNPS();
     Logger.log(`✅ Concluído em ${Math.round((new Date()-inicio)/1000)}s`);
   } catch (e) {
     Logger.log(`❌ ERRO: ${e.message}`);
@@ -176,6 +178,65 @@ function testarCND() {
   const pequenas = values.slice(1).filter(r => (r[1] || '').toString().toLowerCase().includes('pequenas'));
   Logger.log(`  Linhas de Pequenas Contas: ${pequenas.length}`);
   if (pequenas.length > 0) Logger.log(`  Exemplo: ${JSON.stringify(pequenas[0])}`);
+}
+
+// ────────────────────────────────────────────────────────────
+// NPS — agrega comentarios_NPS por município e salva NPS_Calculado
+// Promotores 9-10, Neutros 7-8, Detratores 0-6
+// NPS = % Promotores − % Detratores (resultado de -100 a 100)
+// ────────────────────────────────────────────────────────────
+function fetchAndStoreNPS() {
+  Logger.log('  Calculando NPS de comentarios_NPS...');
+  const props   = PropertiesService.getScriptProperties();
+  const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
+  const ss      = SpreadsheetApp.openById(sheetId);
+
+  const tab = ss.getSheetByName('comentarios_NPS');
+  if (!tab) { Logger.log('  NPS: aba comentarios_NPS não encontrada'); return; }
+
+  const values = tab.getDataRange().getValues();
+  if (values.length < 2) { Logger.log('  NPS: planilha vazia'); return; }
+
+  const headers = values[0];
+
+  // Detectar colunas por nome
+  const iMun   = headers.findIndex(h => h.toString().toLowerCase().includes('municipio'));
+  const iScore = headers.findIndex(h => /npsgeralemail|npsgeral/i.test(h));
+
+  Logger.log(`  Colunas NPS — Município:${iMun} Score:${iScore}`);
+  if (iMun < 0 || iScore < 0) { Logger.log('  NPS: colunas não encontradas'); return; }
+
+  // Agregar por município
+  const map = {};
+  values.slice(1).forEach(function(row) {
+    const mun   = (row[iMun] || '').toString().trim();
+    const score = parseFloat(row[iScore]);
+    if (!mun || isNaN(score)) return;
+    if (!map[mun]) map[mun] = { total: 0, promotores: 0, neutros: 0, detratores: 0 };
+    map[mun].total++;
+    if      (score >= 9) map[mun].promotores++;
+    else if (score >= 7) map[mun].neutros++;
+    else                 map[mun].detratores++;
+  });
+
+  const ts   = new Date().toISOString();
+  const rows = Object.keys(map).sort().map(function(mun) {
+    const d   = map[mun];
+    const nps = d.total > 0 ? Math.round((d.promotores / d.total) * 100 - (d.detratores / d.total) * 100) : 0;
+    return [mun, d.total, d.promotores, d.neutros, d.detratores, nps, ts];
+  });
+
+  let tabOut = ss.getSheetByName(NPS_TAB_NAME);
+  if (!tabOut) tabOut = ss.insertSheet(NPS_TAB_NAME);
+
+  tabOut.getRange(1, 1, 1, 7).setValues([['municipio','total','promotores','neutros','detratores','nps_score','atualizado_em']]);
+  if (tabOut.getLastRow() > 1) tabOut.getRange(2, 1, tabOut.getLastRow() - 1, 7).clearContent();
+  if (rows.length > 0) tabOut.getRange(2, 1, rows.length, 7).setValues(rows);
+
+  const h = tabOut.getRange(1, 1, 1, 7);
+  h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
+  tabOut.setFrozenRows(1);
+  Logger.log(`  NPS_Calculado: ${rows.length} municípios gravados`);
 }
 
 // ────────────────────────────────────────────────────────────
