@@ -82,6 +82,8 @@ const JQL = `category = "Projetos ativos de atendimento - Filial" AND resolution
 const FIELD_MUNICIPIO = 'customfield_10331'; // Município (string)
 const FIELD_VERTICAL  = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
 const SHEET_TAB_NAME  = 'Jira_Chamados';
+const CND_TAB_NAME    = 'CND_Municipios';
+const CND_SHEET_ID    = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
 const PAGE_SIZE       = 100;
 const SLEEP_MS        = 200;
 
@@ -90,17 +92,90 @@ const SLEEP_MS        = 200;
 // ────────────────────────────────────────────────────────────
 function onTimeTrigger() {
   const inicio = new Date();
-  Logger.log(`▶ Iniciando coleta Jira: ${inicio.toLocaleString('pt-BR')}`);
+  Logger.log(`▶ Iniciando coleta: ${inicio.toLocaleString('pt-BR')}`);
   try {
     const issues = fetchJiraIssues();
     Logger.log(`  Issues coletadas: ${issues.length}`);
     const rows = aggregateByMunicipioVertical(issues);
     writeJiraChamados(rows);
-    Logger.log(`✅ Concluído em ${Math.round((new Date()-inicio)/1000)}s — ${rows.length} linhas gravadas`);
+    Logger.log(`  Jira: ${rows.length} linhas gravadas`);
+    fetchAndStoreCND();
+    Logger.log(`✅ Concluído em ${Math.round((new Date()-inicio)/1000)}s`);
   } catch (e) {
     Logger.log(`❌ ERRO: ${e.message}`);
     throw e;
   }
+}
+
+// ────────────────────────────────────────────────────────────
+// CND — busca dados do endpoint CND e salva na planilha
+// Roda server-side com auth do proprietário do script
+// ────────────────────────────────────────────────────────────
+function fetchAndStoreCND() {
+  Logger.log('  Buscando dados CND da planilha...');
+  const ssCND  = SpreadsheetApp.openById(CND_SHEET_ID);
+  const tabCND = ssCND.getSheets()[0]; // primeira aba
+  const values = tabCND.getDataRange().getValues();
+
+  if (values.length < 2) { Logger.log('  CND: planilha vazia'); return; }
+
+  const headers = values[0];
+
+  // Detectar colunas por nome (busca parcial, case-insensitive)
+  const col = (termo) => headers.findIndex(h =>
+    h.toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(termo));
+
+  const iMun  = col('munic');
+  const iPort = col('portf');
+  const iP1   = headers.findIndex(h => /per[^\d]*1/i.test(h));
+  const iP2   = headers.findIndex(h => /per[^\d]*2/i.test(h));
+  const iP3   = headers.findIndex(h => /per[^\d]*3/i.test(h));
+
+  Logger.log(`  Colunas detectadas — Município:${iMun} Portfólio:${iPort} P1:${iP1} P2:${iP2} P3:${iP3}`);
+
+  const filtrados = values.slice(1).filter(row => {
+    const port = iPort >= 0 ? (row[iPort] || '').toString().toLowerCase() : '';
+    return port.includes('pequenas') && row[iMun];
+  });
+  Logger.log(`  CND: ${filtrados.length} registros de Pequenas Contas`);
+
+  const ts = new Date().toISOString();
+  const writeRows = filtrados.map(row => [
+    row[iMun]  || '',
+    iPort >= 0 ? (row[iPort] || '') : '',
+    iP1   >= 0 ? (row[iP1]  || '') : '',
+    iP2   >= 0 ? (row[iP2]  || '') : '',
+    iP3   >= 0 ? (row[iP3]  || '') : '',
+    ts,
+  ]);
+
+  const props   = PropertiesService.getScriptProperties();
+  const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
+  const ss      = SpreadsheetApp.openById(sheetId);
+  let tab       = ss.getSheetByName(CND_TAB_NAME);
+  if (!tab) { tab = ss.insertSheet(CND_TAB_NAME); }
+
+  tab.getRange(1, 1, 1, 6).setValues([['municipio','portfolio','periodo1','periodo2','periodo3','atualizado_em']]);
+  if (tab.getLastRow() > 1) tab.getRange(2, 1, tab.getLastRow() - 1, 6).clearContent();
+  if (writeRows.length > 0) tab.getRange(2, 1, writeRows.length, 6).setValues(writeRows);
+
+  const h = tab.getRange(1, 1, 1, 6);
+  h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
+  tab.setFrozenRows(1);
+  Logger.log(`  CND_Municipios: ${writeRows.length} linhas gravadas`);
+}
+
+// Diagnóstico: testa leitura CND sem gravar
+function testarCND() {
+  Logger.log('🔍 Testando leitura CND...');
+  const ssCND  = SpreadsheetApp.openById(CND_SHEET_ID);
+  const tab    = ssCND.getSheets()[0];
+  const values = tab.getDataRange().getValues();
+  Logger.log(`  Total de linhas (com header): ${values.length}`);
+  if (values.length > 0) Logger.log(`  Headers: ${values[0].join(' | ')}`);
+  const pequenas = values.slice(1).filter(r => (r[1] || '').toString().toLowerCase().includes('pequenas'));
+  Logger.log(`  Linhas de Pequenas Contas: ${pequenas.length}`);
+  if (pequenas.length > 0) Logger.log(`  Exemplo: ${JSON.stringify(pequenas[0])}`);
 }
 
 // ────────────────────────────────────────────────────────────

@@ -604,67 +604,24 @@ function fetchSheet(sheetName) {
   });
 }
 
-// Fetch JSONP do CND
+// CND: lê da aba CND_Municipios gravada pelo Apps Script (proxy server-side)
 function fetchCND() {
-  return new Promise((resolve, reject) => {
-    const cbName = '_cndCb_' + Date.now();
-    const timeout = setTimeout(() => {
-      delete window[cbName];
-      document.head.querySelector(`script[data-cnd]`)?.remove();
-      reject(new Error('Timeout CND'));
-    }, 12000);
-
-    window[cbName] = function(data) {
-      clearTimeout(timeout);
-      delete window[cbName];
-      try { resolve(normalizeCND(data)); }
-      catch(e) { reject(e); }
+  return fetchSheet('CND_Municipios').then(rows => {
+    const normVal = v => {
+      if (!v) return 'Sem CND';
+      return v.toString().toLowerCase().includes('com') ? 'Com CND' : 'Sem CND';
     };
-
-    const script = document.createElement('script');
-    script.setAttribute('data-cnd', '1');
-    script.src = `${CONFIG.CND_URL}?callback=${cbName}`;
-    script.onerror = () => {
-      clearTimeout(timeout);
-      delete window[cbName];
-      reject(new Error('Erro ao carregar CND'));
-    };
-    document.head.appendChild(script);
+    return rows
+      .filter(r => r.municipio)
+      .map(r => ({
+        municipio:   r.municipio,
+        portfolio:   r.portfolio || '',
+        periodo1:    normVal(r.periodo1),
+        periodo2:    normVal(r.periodo2),
+        periodo3:    normVal(r.periodo3),
+        statusAtual: normVal(r.periodo3 || r.periodo2 || r.periodo1),
+      }));
   });
-}
-
-function normalizeCND(data) {
-  const raw = Array.isArray(data) ? data : (data.data || data.values || []);
-  if (raw.length < 2) return [];
-  const [headers, ...rows] = raw;
-  const find = (...keys) => {
-    for (const k of keys) {
-      const idx = headers.findIndex(h => h?.toString().toLowerCase().includes(k));
-      if (idx >= 0) return idx;
-    }
-    return -1;
-  };
-  const iM = find('munic', 'cidade');
-  const iP = find('portf', 'carteira');
-  const iP1 = find('periodo1', 'p1', '1');
-  const iP2 = find('periodo2', 'p2', '2');
-  const iP3 = find('periodo3', 'p3', '3');
-
-  const norm = v => {
-    if (!v) return 'Sem CND';
-    return v.toString().toLowerCase().includes('com') ? 'Com CND' : 'Sem CND';
-  };
-
-  return rows
-    .filter(r => r && r[iM])
-    .map(r => ({
-      municipio: r[iM],
-      portfolio: iP >= 0 ? r[iP] : '',
-      periodo1:  norm(r[iP1]),
-      periodo2:  norm(iP2 >= 0 ? r[iP2] : null),
-      periodo3:  norm(iP3 >= 0 ? r[iP3] : null),
-      statusAtual: norm(iP3 >= 0 && r[iP3] ? r[iP3] : (iP2 >= 0 && r[iP2] ? r[iP2] : r[iP1])),
-    }));
 }
 
 // ============================================================
