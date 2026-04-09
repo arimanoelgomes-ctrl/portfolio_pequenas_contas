@@ -399,14 +399,14 @@
     <div class="view active" id="view-0">
       <div class="view-title">Chamados em Aberto por Cliente</div>
       <div class="view-subtitle">Total de chamados abertos por município • Fonte: Jira</div>
-      <div class="chart-wrap tall"><canvas id="chart-0"></canvas></div>
+      <div id="view0-content"></div>
     </div>
 
     <!-- View 2: Por Vertical -->
     <div class="view" id="view-1">
       <div class="view-title">Chamados por Cliente e Vertical</div>
       <div class="view-subtitle">Distribuição de chamados por vertical dentro de cada município • Fonte: Jira</div>
-      <div class="chart-wrap tall"><canvas id="chart-1"></canvas></div>
+      <div id="view1-content"></div>
     </div>
 
     <!-- View 3: CND -->
@@ -723,14 +723,19 @@ function unavailable(container, msg) {
 }
 
 // ============================================================
-// VIEW 1 — Chamados por Cliente
+// VIEW 1 — Chamados por Cliente (Donut + Tabela)
 // ============================================================
+const PIE_COLORS = [
+  '#5B8DB8','#7DBE8B','#E8896B','#E6C46B','#A67DBE',
+  '#5BB8A6','#E87B91','#8BBAC8','#B8A67D','#9DC87D','#BBBBBB'
+];
+
 function renderChamadosPorCliente() {
   destroyChart('chart-0');
-  const canvas = document.getElementById('chart-0');
+  const container = document.getElementById('view0-content');
 
   if (!state.jira.length) {
-    unavailable(canvas.parentElement, 'Dados do Jira indisponíveis. Verifique se a planilha está publicada.');
+    unavailable(container, 'Dados do Jira indisponíveis. Verifique se a planilha está publicada.');
     return;
   }
 
@@ -741,86 +746,130 @@ function renderChamadosPorCliente() {
     agg[m] = (agg[m] || 0) + (parseInt(r.total_chamados) || 0);
   });
   const sorted = Object.entries(agg).sort((a, b) => b[1] - a[1]);
-  const labels = sorted.map(e => e[0]);
-  const values = sorted.map(e => e[1]);
+  const total = sorted.reduce((s, e) => s + e[1], 0);
 
-  charts['chart-0'] = new Chart(canvas, {
-    type: 'bar',
+  const TOP_N = 10;
+  const top = sorted.slice(0, TOP_N);
+  const outroTotal = sorted.slice(TOP_N).reduce((s, e) => s + e[1], 0);
+
+  const labels = top.map(e => e[0]);
+  const values = top.map(e => e[1]);
+  if (outroTotal > 0) { labels.push('Outro...'); values.push(outroTotal); }
+
+  const colors = PIE_COLORS.slice(0, labels.length);
+
+  container.innerHTML = `
+    <div style="display:grid;grid-template-columns:340px 1fr;gap:32px;align-items:start;margin-top:8px">
+      <div>
+        <div style="font-size:.8rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Município</div>
+        <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:14px">Total de Pendências: <strong style="color:var(--text)">${total}</strong></div>
+        <div style="position:relative;height:300px"><canvas id="chart-0"></canvas></div>
+      </div>
+      <div id="mun-legend" style="margin-top:36px"></div>
+    </div>`;
+
+  charts['chart-0'] = new Chart(document.getElementById('chart-0'), {
+    type: 'doughnut',
     data: {
       labels,
-      datasets: [{ label: 'Chamados', data: values, backgroundColor: '#2B6CB0', borderRadius: 4 }]
+      datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }]
     },
     options: {
-      indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
+      cutout: '52%',
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x} chamados` } }
-      },
-      scales: {
-        x: { grid: { color: '#F0F2F5' }, ticks: { stepSize: 1 } },
-        y: { ticks: { font: { size: 11 } } }
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} chamados` } }
       }
     }
   });
+
+  // Tabela de legendas
+  const rows = labels.map((label, i) => `
+    <tr style="border-bottom:1px solid #F0F2F5">
+      <td style="padding:5px 8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="display:inline-block;width:13px;height:13px;border-radius:3px;background:${colors[i]};flex-shrink:0"></span>
+          <span style="font-size:.83rem">${label}</span>
+        </div>
+      </td>
+      <td style="padding:5px 12px;text-align:right;font-size:.83rem;font-weight:700;color:${colors[i]}">${values[i]}</td>
+    </tr>`).join('');
+
+  document.getElementById('mun-legend').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;max-width:420px">
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 
 // ============================================================
-// VIEW 2 — Chamados por Vertical (Stacked)
+// VIEW 2 — Chamados por Vertical (Tabela Cruzada)
 // ============================================================
 function renderChamadosPorVertical() {
   destroyChart('chart-1');
-  const canvas = document.getElementById('chart-1');
+  const container = document.getElementById('view1-content');
 
   if (!state.jira.length) {
-    unavailable(canvas.parentElement, 'Dados do Jira indisponíveis.');
+    unavailable(container, 'Dados do Jira indisponíveis.');
     return;
   }
 
-  // Coletar verticais únicas e municípios
+  // Coletar verticais únicas ordenadas
   const verticais = [...new Set(state.jira.map(r => r.vertical || 'Não informado'))].sort();
-  const municipios = [...new Set(state.jira.map(r => r.municipio || 'Não informado'))];
 
-  // Total por município para ordenação
-  const totPorMun = {};
+  // Agregar por município × vertical
+  const munMap = {};
   state.jira.forEach(r => {
     const m = r.municipio || 'Não informado';
-    totPorMun[m] = (totPorMun[m] || 0) + (parseInt(r.total_chamados) || 0);
-  });
-  const munOrdenados = municipios.sort((a, b) => totPorMun[b] - totPorMun[a]);
-
-  // Construir datasets (um por vertical)
-  const datasets = verticais.map(v => {
-    const data = munOrdenados.map(m => {
-      const row = state.jira.find(r => r.municipio === m && r.vertical === v);
-      return row ? (parseInt(row.total_chamados) || 0) : 0;
-    });
-    return {
-      label: v,
-      data,
-      backgroundColor: getVerticalColor(v),
-      borderRadius: 2,
-    };
+    const v = r.vertical   || 'Não informado';
+    if (!munMap[m]) munMap[m] = { total: 0 };
+    const n = parseInt(r.total_chamados) || 0;
+    munMap[m][v] = (munMap[m][v] || 0) + n;
+    munMap[m].total += n;
   });
 
-  charts['chart-1'] = new Chart(canvas, {
-    type: 'bar',
-    data: { labels: munOrdenados, datasets },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } },
-        tooltip: { mode: 'index' }
-      },
-      scales: {
-        x: { stacked: true, grid: { color: '#F0F2F5' } },
-        y: { stacked: true, ticks: { font: { size: 11 } } }
-      }
-    }
-  });
+  // Municípios ordenados por total desc
+  const municipios = Object.entries(munMap)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(e => e[0]);
+
+  const thStyle = `padding:9px 12px;text-align:center;font-size:.76rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+  const thFirst = `padding:9px 14px;text-align:left;font-size:.76rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+
+  const headerCells = verticais.map(v =>
+    `<th style="${thStyle}">${v}</th>`).join('');
+
+  const bodyRows = municipios.map((m, ri) => {
+    const bg = ri % 2 === 0 ? '#FFFFFF' : '#F7FAFC';
+    const cells = verticais.map(v => {
+      const val = munMap[m][v] || 0;
+      const cellStyle = `padding:7px 12px;text-align:center;font-size:.82rem;border-right:1px solid #EDF2F7`;
+      return val > 0
+        ? `<td style="${cellStyle}"><span style="color:#2B6CB0;font-weight:500">${val}</span></td>`
+        : `<td style="${cellStyle}">0</td>`;
+    }).join('');
+
+    return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
+      <td style="padding:7px 14px;font-size:.82rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
+      ${cells}
+      <td style="padding:7px 12px;text-align:center;font-size:.82rem;font-weight:700;color:#1E3A5F">${munMap[m].total}</td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="overflow-x:auto;margin-top:8px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+      <table style="width:100%;border-collapse:collapse;font-family:inherit">
+        <thead>
+          <tr style="background:#1E3A5F;color:#fff">
+            <th style="${thFirst}">Município</th>
+            ${headerCells}
+            <th style="${thStyle}">T</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
 }
 
 // ============================================================
