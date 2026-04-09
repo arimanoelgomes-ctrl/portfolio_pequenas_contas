@@ -254,33 +254,47 @@
     .nps-bar-seg { height: 100%; transition: width 0.4s; }
     .nps-right { display: flex; flex-direction: column; gap: 16px; }
 
-    /* ===== Risk Cards ===== */
-    .risk-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 12px;
-    }
-    .risk-card {
-      padding: 14px 16px;
+    /* ===== Risk — redesign ===== */
+    .risk-kpis { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .risk-kpi-card {
+      flex: 1; min-width: 100px;
+      background: var(--surface);
       border-radius: var(--radius);
+      padding: 14px 16px;
       border-left: 4px solid;
+      text-align: center;
     }
-    .risk-card.Alto    { border-color: var(--red);    background: var(--red-bg); }
-    .risk-card.Médio   { border-color: var(--orange);  background: var(--orange-bg); }
-    .risk-card.Baixo   { border-color: var(--yellow);  background: var(--yellow-bg); }
-    .risk-card-title { font-size: 0.88rem; font-weight: 700; }
-    .risk-card-badge {
-      display: inline-block;
-      font-size: 0.7rem;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 10px;
-      margin-bottom: 6px;
+    .risk-kpi-num   { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .risk-kpi-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; font-weight: 600; }
+    .risk-main { display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: start; }
+    .risk-col-title {
+      font-size: 0.78rem; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;
     }
-    .risk-card.Alto  .risk-card-badge { background: var(--red-light);    color: var(--red); }
-    .risk-card.Médio  .risk-card-badge { background: var(--orange-light); color: var(--orange); }
-    .risk-card.Baixo  .risk-card-badge { background: var(--yellow-light); color: var(--yellow); }
-    .risk-card-motivo { font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; }
+    .risk-temas { display: flex; flex-wrap: wrap; gap: 8px; }
+    .risk-tema-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px 4px 5px;
+      border: 1.5px solid; border-radius: 20px;
+      font-size: 0.78rem; font-weight: 600; cursor: default;
+    }
+    .risk-tema-count {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 50%;
+      color: white; font-size: 0.7rem; font-weight: 700;
+    }
+    .risk-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .risk-table thead tr { background: #f1f5f9; }
+    .risk-table th { padding: 7px 12px; text-align: left; font-weight: 600; font-size: 0.75rem; color: var(--text-muted); }
+    .risk-table td { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+    .risk-table tbody tr:hover { background: #f8fafc; }
+    .risk-table-mun { font-weight: 600; white-space: nowrap; }
+    .risk-table-motivo { color: var(--text-muted); }
+    .risk-table-cons { color: var(--text-muted); white-space: nowrap; font-size: 0.78rem; }
+    .risk-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
+    .risk-badge-Alto  { background: #fee2e2; color: #dc2626; }
+    .risk-badge-Medio { background: #ffedd5; color: #ea580c; }
+    .risk-badge-Baixo { background: #fef3c7; color: #d97706; }
 
     /* ===== Unavailable ===== */
     .unavailable {
@@ -1063,54 +1077,127 @@ function renderRisco() {
     return;
   }
 
-  const emRisco = state.risco.filter(r => r.risco && r.risco !== 'Sem Risco');
-  if (!emRisco.length) {
-    container.innerHTML = `<div class="unavailable" style="height:120px">
-      <div class="unavailable-icon">✅</div>
-      <div class="unavailable-text">Nenhum cliente em risco de exclusão</div>
-    </div>`;
-    return;
-  }
+  // Normalize risco value (strips accents for CSS class use)
+  const normRisco = v => (v || '').trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  const ORDER = { 'Alto': 0, 'Médio': 1, 'Baixo': 2 };
-  const sorted = [...emRisco].sort((a, b) => (ORDER[a.risco] ?? 9) - (ORDER[b.risco] ?? 9));
+  const alto     = state.risco.filter(r => normRisco(r.risco) === 'Alto');
+  const medio    = state.risco.filter(r => normRisco(r.risco) === 'Medio');
+  const baixo    = state.risco.filter(r => normRisco(r.risco) === 'Baixo');
+  const semRisco = state.risco.filter(r => !r.risco || r.risco === 'Sem Risco');
+  const emRisco  = [...alto, ...medio, ...baixo];
 
-  // Cards se ≤ 10, gráfico de barra se > 10
-  if (sorted.length <= 10) {
-    const cards = sorted.map(r => `
-      <div class="risk-card ${r.risco}">
-        <div class="risk-card-badge">${r.risco}</div>
-        <div class="risk-card-title">${r.municipio}</div>
-        ${r.motivo ? `<div class="risk-card-motivo">${r.motivo}</div>` : ''}
-      </div>`).join('');
-    container.innerHTML = `<div class="risk-grid">${cards}</div>`;
-  } else {
-    destroyChart('chart-3');
-    container.innerHTML = '<div class="chart-wrap tall"><canvas id="chart-3"></canvas></div>';
-    const labels = sorted.map(r => r.municipio);
-    const colors = sorted.map(r =>
-      r.risco === 'Alto' ? '#C53030' : r.risco === 'Médio' ? '#C05621' : '#D69E2E');
-    charts['chart-3'] = new Chart(document.getElementById('chart-3'), {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [{ label: 'Risco', data: sorted.map((_, i) => sorted.length - i), backgroundColor: colors, borderRadius: 4 }]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: {
-            label: ctx => ` Risco: ${sorted[ctx.dataIndex].risco}`,
-            afterLabel: ctx => sorted[ctx.dataIndex].motivo ? `  ${sorted[ctx.dataIndex].motivo}` : ''
-          }}
-        },
-        scales: { x: { display: false }, y: { ticks: { font: { size: 11 } } } }
-      }
+  // ── KPI cards ──────────────────────────────────────────────
+  const kpiHtml = `<div class="risk-kpis">
+    <div class="risk-kpi-card" style="border-color:#dc2626">
+      <div class="risk-kpi-num" style="color:#dc2626">${alto.length}</div>
+      <div class="risk-kpi-label">Alto Risco</div>
+    </div>
+    <div class="risk-kpi-card" style="border-color:#ea580c">
+      <div class="risk-kpi-num" style="color:#ea580c">${medio.length}</div>
+      <div class="risk-kpi-label">Médio Risco</div>
+    </div>
+    ${baixo.length ? `<div class="risk-kpi-card" style="border-color:#d97706">
+      <div class="risk-kpi-num" style="color:#d97706">${baixo.length}</div>
+      <div class="risk-kpi-label">Baixo Risco</div>
+    </div>` : ''}
+    <div class="risk-kpi-card" style="border-color:#16a34a">
+      <div class="risk-kpi-num" style="color:#16a34a">${semRisco.length}</div>
+      <div class="risk-kpi-label">Sem Risco</div>
+    </div>
+  </div>`;
+
+  // ── Insights: agrupar motivos por tema ────────────────────
+  const TEMAS = [
+    { label: 'Licitando / IPM',  keys: ['licitad', 'licitac', 'ipm'],          color: '#dc2626' },
+    { label: 'Apenas Educação',  keys: ['educac', 'educao'],                    color: '#d97706' },
+    { label: 'Migrado recente',  keys: ['migrado', 'migracao', 'migrac'],       color: '#ea580c' },
+    { label: 'Apenas Saúde',     keys: ['saude', 'saúde'],                      color: '#7c3aed' },
+    { label: 'Câmara Municipal', keys: ['camara', 'câmara'],                    color: '#0891b2' },
+    { label: 'Consórcio',        keys: ['consorcio', 'consórcio'],              color: '#2563eb' },
+    { label: 'Merece atenção',   keys: ['atenc', 'atenção', 'auxilio', 'merece'], color: '#059669' },
+  ];
+
+  const norm = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  const temaData = TEMAS.map(t => {
+    const matches = emRisco.filter(r => {
+      const m = norm(r.motivo || '');
+      return t.keys.some(k => m.includes(k));
     });
-  }
+    return { ...t, count: matches.length, nomes: matches.map(r => r.municipio) };
+  }).filter(t => t.count > 0).sort((a, b) => b.count - a.count);
+
+  const semMotivo = emRisco.filter(r => !r.motivo || !r.motivo.trim());
+
+  const pillsHtml = [
+    ...temaData.map(t => `
+      <div class="risk-tema-pill" title="Municípios: ${t.nomes.join(', ')}" style="border-color:${t.color};color:${t.color}">
+        <span class="risk-tema-count" style="background:${t.color}">${t.count}</span>
+        ${t.label}
+      </div>`),
+    semMotivo.length ? `<div class="risk-tema-pill" style="border-color:#94a3b8;color:#64748b">
+        <span class="risk-tema-count" style="background:#94a3b8">${semMotivo.length}</span>
+        Sem motivo
+      </div>` : '',
+  ].join('');
+
+  // ── Tabela de municípios em risco ─────────────────────────
+  const badgeClass = r => 'risk-badge risk-badge-' + normRisco(r.risco);
+  const tableRows = emRisco.map(r => `
+    <tr>
+      <td class="risk-table-mun">${r.municipio}</td>
+      <td><span class="${badgeClass(r)}">${r.risco || '—'}</span></td>
+      <td class="risk-table-motivo">${r.motivo || '—'}</td>
+      <td class="risk-table-cons">${r.consultor || '—'}</td>
+    </tr>`).join('');
+
+  // ── Montar HTML ────────────────────────────────────────────
+  destroyChart('chart-3');
+  container.innerHTML = kpiHtml + `
+    <div class="risk-main">
+      <div>
+        <div class="risk-col-title">Distribuição por risco</div>
+        <div style="height:240px"><canvas id="chart-3"></canvas></div>
+      </div>
+      <div>
+        <div class="risk-col-title">Motivos mapeados</div>
+        <div class="risk-temas">${pillsHtml}</div>
+      </div>
+    </div>
+    <div style="margin-top:24px">
+      <div class="risk-col-title">Municípios em risco — ${emRisco.length} clientes</div>
+      <table class="risk-table">
+        <thead><tr>
+          <th>Município</th><th>Risco</th><th>Motivo</th><th>Consultor</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>`;
+
+  // ── Donut de distribuição ──────────────────────────────────
+  const donutData = [
+    { label: 'Alto',      count: alto.length,     color: '#dc2626' },
+    { label: 'Médio',     count: medio.length,    color: '#ea580c' },
+    { label: 'Baixo',     count: baixo.length,    color: '#d97706' },
+    { label: 'Sem Risco', count: semRisco.length, color: '#16a34a' },
+  ].filter(d => d.count > 0);
+
+  charts['chart-3'] = new Chart(document.getElementById('chart-3'), {
+    type: 'doughnut',
+    data: {
+      labels: donutData.map(d => d.label),
+      datasets: [{ data: donutData.map(d => d.count), backgroundColor: donutData.map(d => d.color), borderWidth: 0 }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + ctx.parsed + ' municípios' } }
+      }
+    }
+  });
 }
 
 // ============================================================
