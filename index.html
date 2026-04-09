@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portfólio Pequenas Contas — Dashboard Executivo</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ===== Reset & Base ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:           #F0F2F5;
+      --surface:      #FFFFFF;
+      --border:       #E2E8F0;
+      --text:         #1A202C;
+      --text-muted:   #718096;
+      --header-bg:    #1E3A5F;
+      --header-text:  #FFFFFF;
+      --accent:       #2B6CB0;
+
+      --red:          #C53030;
+      --red-light:    #FED7D7;
+      --red-bg:       #FFF5F5;
+
+      --orange:       #C05621;
+      --orange-light: #FEEBC8;
+      --orange-bg:    #FFFAF0;
+
+      --green:        #276749;
+      --green-light:  #C6F6D5;
+      --green-bg:     #F0FFF4;
+
+      --blue:         #2C5282;
+      --blue-light:   #BEE3F8;
+      --blue-bg:      #EBF8FF;
+
+      --yellow:       #B7791F;
+      --yellow-light: #FEFCBF;
+      --yellow-bg:    #FFFFF0;
+
+      --radius:       8px;
+      --shadow:       0 1px 3px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md:    0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ===== Header ===== */
+    header {
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 14px 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+    header h1 span { opacity: 0.6; font-weight: 400; font-size: 0.85rem; margin-left: 8px; }
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .sync-info {
+      font-size: 0.78rem;
+      opacity: 0.75;
+      text-align: right;
+      line-height: 1.5;
+    }
+    .btn-refresh {
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff;
+      padding: 7px 16px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .btn-refresh:hover { background: rgba(255,255,255,0.25); }
+    .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ===== Main Layout ===== */
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px 24px 32px;
+      width: 100%;
+      flex: 1;
+    }
+
+    /* ===== KPI Cards ===== */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      border-top: 4px solid var(--accent);
+      transition: box-shadow 0.15s;
+    }
+    .kpi-card:hover { box-shadow: var(--shadow-md); }
+    .kpi-card.green  { border-top-color: var(--green); }
+    .kpi-card.red    { border-top-color: var(--red); }
+    .kpi-card.yellow { border-top-color: var(--yellow); }
+    .kpi-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .kpi-value {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+    }
+    .kpi-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    /* ===== Tab Navigation ===== */
+    .tab-nav {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .tab-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* ===== Chart Panel ===== */
+    .chart-panel {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+    .view { display: none; }
+    .view.active { display: block; }
+    .view-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .view-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+    .chart-wrap {
+      position: relative;
+      height: 480px;
+    }
+    .chart-wrap.tall { height: 600px; }
+    .chart-wrap.short { height: 280px; }
+
+    /* ===== NPS Panel ===== */
+    .nps-panel {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 32px;
+      align-items: start;
+    }
+    .nps-score-box {
+      text-align: center;
+      padding: 32px 16px;
+      background: var(--bg);
+      border-radius: var(--radius);
+    }
+    .nps-score-num {
+      font-size: 4rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .nps-score-num.positive { color: var(--green); }
+    .nps-score-num.neutral  { color: var(--yellow); }
+    .nps-score-num.negative { color: var(--red); }
+    .nps-score-label { font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; font-weight: 600; }
+    .nps-cats {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .nps-cat {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .nps-cat-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .nps-cat-info { flex: 1; }
+    .nps-cat-name { font-size: 0.82rem; font-weight: 600; }
+    .nps-cat-count { font-size: 0.78rem; color: var(--text-muted); }
+    .nps-bar-wrap { margin-top: 20px; }
+    .nps-bar-label { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 600; }
+    .nps-bar {
+      height: 28px;
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+    }
+    .nps-bar-seg { height: 100%; transition: width 0.4s; }
+    .nps-right { display: flex; flex-direction: column; gap: 16px; }
+
+    /* ===== Risk Cards ===== */
+    .risk-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .risk-card {
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      border-left: 4px solid;
+    }
+    .risk-card.Alto    { border-color: var(--red);    background: var(--red-bg); }
+    .risk-card.Médio   { border-color: var(--orange);  background: var(--orange-bg); }
+    .risk-card.Baixo   { border-color: var(--yellow);  background: var(--yellow-bg); }
+    .risk-card-title { font-size: 0.88rem; font-weight: 700; }
+    .risk-card-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-bottom: 6px;
+    }
+    .risk-card.Alto  .risk-card-badge { background: var(--red-light);    color: var(--red); }
+    .risk-card.Médio  .risk-card-badge { background: var(--orange-light); color: var(--orange); }
+    .risk-card.Baixo  .risk-card-badge { background: var(--yellow-light); color: var(--yellow); }
+    .risk-card-motivo { font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; }
+
+    /* ===== Unavailable ===== */
+    .unavailable {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 200px;
+      color: var(--text-muted);
+      gap: 8px;
+    }
+    .unavailable-icon { font-size: 2rem; }
+    .unavailable-text { font-size: 0.9rem; }
+
+    /* ===== Loading Overlay ===== */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      flex-direction: column;
+      gap: 12px;
+    }
+    #loading-overlay.hidden { display: none; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; }
+
+    /* ===== Footer ===== */
+    footer {
+      background: var(--header-bg);
+      color: rgba(255,255,255,0.6);
+      padding: 12px 24px;
+      font-size: 0.75rem;
+      text-align: center;
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 768px) {
+      main { padding: 16px; }
+      .nps-panel { grid-template-columns: 1fr; }
+      .chart-wrap { height: 360px; }
+      .chart-wrap.tall { height: 500px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="header-title">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+      </svg>
+      <h1>Portfólio Pequenas Contas <span>Dashboard Executivo</span></h1>
+    </div>
+    <div class="header-meta">
+      <div class="sync-info">
+        <div>Jira: <span id="sync-jira">—</span></div>
+        <div>CND: <span id="sync-cnd">—</span></div>
+      </div>
+      <button class="btn-refresh" id="btn-refresh" onclick="loadAllData()">⟳ Atualizar</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- KPI Cards -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">Total Chamados Abertos</div>
+      <div class="kpi-value" id="kpi-chamados">—</div>
+      <div class="kpi-sub" id="kpi-chamados-sub">Carregando…</div>
+    </div>
+    <div class="kpi-card green">
+      <div class="kpi-label">Clientes com CND</div>
+      <div class="kpi-value" id="kpi-cnd">—</div>
+      <div class="kpi-sub" id="kpi-cnd-sub">Carregando…</div>
+    </div>
+    <div class="kpi-card red">
+      <div class="kpi-label">Clientes em Risco</div>
+      <div class="kpi-value" id="kpi-risco">—</div>
+      <div class="kpi-sub" id="kpi-risco-sub">Carregando…</div>
+    </div>
+    <div class="kpi-card yellow">
+      <div class="kpi-label">NPS do Portfólio</div>
+      <div class="kpi-value" id="kpi-nps">—</div>
+      <div class="kpi-sub" id="kpi-nps-sub">Carregando…</div>
+    </div>
+  </div>
+
+  <!-- Tab Navigation -->
+  <div class="tab-nav">
+    <button class="tab-btn active" onclick="switchTab(0)">📊 Chamados por Cliente</button>
+    <button class="tab-btn" onclick="switchTab(1)">🏷️ Por Vertical</button>
+    <button class="tab-btn" onclick="switchTab(2)">🏛️ CND</button>
+    <button class="tab-btn" onclick="switchTab(3)">⚠️ Risco de Exclusão</button>
+    <button class="tab-btn" onclick="switchTab(4)">⭐ NPS Geral</button>
+    <button class="tab-btn" onclick="switchTab(5)">📈 NPS por Cliente</button>
+  </div>
+
+  <!-- Chart Panel -->
+  <div class="chart-panel">
+
+    <!-- View 1: Chamados por Cliente -->
+    <div class="view active" id="view-0">
+      <div class="view-title">Chamados em Aberto por Cliente</div>
+      <div class="view-subtitle">Total de chamados abertos por município • Fonte: Jira</div>
+      <div class="chart-wrap tall"><canvas id="chart-0"></canvas></div>
+    </div>
+
+    <!-- View 2: Por Vertical -->
+    <div class="view" id="view-1">
+      <div class="view-title">Chamados por Cliente e Vertical</div>
+      <div class="view-subtitle">Distribuição de chamados por vertical dentro de cada município • Fonte: Jira</div>
+      <div class="chart-wrap tall"><canvas id="chart-1"></canvas></div>
+    </div>
+
+    <!-- View 3: CND -->
+    <div class="view" id="view-2">
+      <div class="view-title">Situação CND do Portfólio</div>
+      <div class="view-subtitle">Clientes com e sem Certidão Negativa de Débito • Fonte: Sistema CND</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start;margin-top:8px">
+        <div><div class="chart-wrap short"><canvas id="chart-2"></canvas></div></div>
+        <div id="cnd-table"></div>
+      </div>
+    </div>
+
+    <!-- View 4: Risco de Exclusão -->
+    <div class="view" id="view-3">
+      <div class="view-title">Clientes com Risco de Exclusão</div>
+      <div class="view-subtitle">Municípios com risco de cancelamento de contrato • Fonte: Google Sheets</div>
+      <div id="risk-container" style="margin-top:16px"></div>
+    </div>
+
+    <!-- View 5: NPS Geral -->
+    <div class="view" id="view-4">
+      <div class="view-title">NPS do Portfólio</div>
+      <div class="view-subtitle">Net Promoter Score consolidado • Fonte: Google Sheets</div>
+      <div class="nps-panel" id="nps-panel" style="margin-top:16px">
+        <div class="nps-score-box">
+          <div class="nps-score-num" id="nps-score-num">—</div>
+          <div class="nps-score-label">NPS Score</div>
+          <div class="nps-cats" id="nps-cats"></div>
+        </div>
+        <div class="nps-right">
+          <div class="nps-bar-wrap">
+            <div class="nps-bar-label">Distribuição das respostas</div>
+            <div class="nps-bar" id="nps-bar"></div>
+          </div>
+          <div class="chart-wrap short"><canvas id="chart-4"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- View 6: NPS por Cliente -->
+    <div class="view" id="view-5">
+      <div class="view-title">NPS por Cliente</div>
+      <div class="view-subtitle">Nota NPS individual por município • Fonte: Google Sheets</div>
+      <div class="chart-wrap tall"><canvas id="chart-5"></canvas></div>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  Portfólio Pequenas Contas — Dashboard Executivo &nbsp;|&nbsp;
+  Fontes: Jira (Betha) · Google Sheets · CND &nbsp;|&nbsp;
+  Gerado em: <span id="footer-date">—</span>
+</footer>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Carregando dados…</div>
+</div>
+
+<script>
+// ============================================================
+// CONFIGURAÇÃO
+// ============================================================
+const CONFIG = {
+  // URL do Apps Script implantado como Web App (Implantar → Nova implantação → Aplicativo da Web)
+  // Preencher após implantar o codigo.gs
+  APPS_SCRIPT_URL: 'https://script.google.com/a/macros/betha.com.br/s/AKfycbyN0JCa48ZCUASxxQHBWzoJOQh5HkLxpzU8WFM-5UDqLF6cabMhWuD6iLAb-o2nSYd7/exec',
+  CND_URL:         'https://script.google.com/a/macros/betha.com.br/s/AKfycbxdLgsNvNuxCvQVZVyTvTHbtiRyA37J0GMirKt6dFzghUem3QI4qoAMMediR9qVor-H/exec',
+};
+
+// ============================================================
+// ESTADO
+// ============================================================
+const state = { jira: [], risco: [], nps: [], cnd: [] };
+const charts = {};
+let activeTab = 0;
+
+// ============================================================
+// PALETA DE CORES
+// ============================================================
+const COLORS = ['#2B6CB0','#276749','#C05621','#D69E2E','#805AD5','#0987A0','#C53030','#DD6B20','#3182CE','#38A169'];
+const VERTICAL_COLOR = {};
+function getVerticalColor(v) {
+  if (!VERTICAL_COLOR[v]) {
+    const idx = Object.keys(VERTICAL_COLOR).length % COLORS.length;
+    VERTICAL_COLOR[v] = COLORS[idx];
+  }
+  return VERTICAL_COLOR[v];
+}
+
+// ============================================================
+// FETCH — Apps Script (JSONP) e CND (JSONP)
+// ============================================================
+
+// Busca dados de uma aba da planilha via Apps Script web app
+function fetchSheet(sheetName) {
+  return new Promise((resolve, reject) => {
+    const cbName = '_sheetCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const timeout = setTimeout(() => {
+      delete window[cbName];
+      reject(new Error(`Timeout ao carregar "${sheetName}"`));
+    }, 20000);
+
+    window[cbName] = function(response) {
+      clearTimeout(timeout);
+      delete window[cbName];
+      if (response.status === 'error') {
+        reject(new Error(response.message));
+      } else {
+        resolve(response.data || []);
+      }
+    };
+
+    const script = document.createElement('script');
+    script.src = `${CONFIG.APPS_SCRIPT_URL}?sheet=${encodeURIComponent(sheetName)}&callback=${cbName}`;
+    script.onerror = () => {
+      clearTimeout(timeout);
+      delete window[cbName];
+      reject(new Error(`Erro ao carregar "${sheetName}"`));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// Fetch JSONP do CND
+function fetchCND() {
+  return new Promise((resolve, reject) => {
+    const cbName = '_cndCb_' + Date.now();
+    const timeout = setTimeout(() => {
+      delete window[cbName];
+      document.head.querySelector(`script[data-cnd]`)?.remove();
+      reject(new Error('Timeout CND'));
+    }, 12000);
+
+    window[cbName] = function(data) {
+      clearTimeout(timeout);
+      delete window[cbName];
+      try { resolve(normalizeCND(data)); }
+      catch(e) { reject(e); }
+    };
+
+    const script = document.createElement('script');
+    script.setAttribute('data-cnd', '1');
+    script.src = `${CONFIG.CND_URL}?callback=${cbName}`;
+    script.onerror = () => {
+      clearTimeout(timeout);
+      delete window[cbName];
+      reject(new Error('Erro ao carregar CND'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+function normalizeCND(data) {
+  const raw = Array.isArray(data) ? data : (data.data || data.values || []);
+  if (raw.length < 2) return [];
+  const [headers, ...rows] = raw;
+  const find = (...keys) => {
+    for (const k of keys) {
+      const idx = headers.findIndex(h => h?.toString().toLowerCase().includes(k));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+  const iM = find('munic', 'cidade');
+  const iP = find('portf', 'carteira');
+  const iP1 = find('periodo1', 'p1', '1');
+  const iP2 = find('periodo2', 'p2', '2');
+  const iP3 = find('periodo3', 'p3', '3');
+
+  const norm = v => {
+    if (!v) return 'Sem CND';
+    return v.toString().toLowerCase().includes('com') ? 'Com CND' : 'Sem CND';
+  };
+
+  return rows
+    .filter(r => r && r[iM])
+    .map(r => ({
+      municipio: r[iM],
+      portfolio: iP >= 0 ? r[iP] : '',
+      periodo1:  norm(r[iP1]),
+      periodo2:  norm(iP2 >= 0 ? r[iP2] : null),
+      periodo3:  norm(iP3 >= 0 ? r[iP3] : null),
+      statusAtual: norm(iP3 >= 0 && r[iP3] ? r[iP3] : (iP2 >= 0 && r[iP2] ? r[iP2] : r[iP1])),
+    }));
+}
+
+// ============================================================
+// CARREGAMENTO DE DADOS
+// ============================================================
+async function loadAllData() {
+  showLoading(true);
+  document.getElementById('btn-refresh').disabled = true;
+
+  const [jiraRes, riscoRes, npsRes, cndRes] = await Promise.allSettled([
+    fetchSheet('Jira_Chamados'),
+    fetchSheet('Risco de Exclusão'),
+    fetchSheet('NPS'),
+    fetchCND(),
+  ]);
+
+  if (jiraRes.status === 'fulfilled')  state.jira  = jiraRes.value;
+  else { console.warn('Jira:', jiraRes.reason?.message); state.jira = []; }
+
+  if (riscoRes.status === 'fulfilled') state.risco = riscoRes.value;
+  else { console.warn('Risco:', riscoRes.reason?.message); state.risco = []; }
+
+  if (npsRes.status === 'fulfilled')   state.nps   = npsRes.value;
+  else { console.warn('NPS:', npsRes.reason?.message); state.nps = []; }
+
+  if (cndRes.status === 'fulfilled')   state.cnd   = cndRes.value;
+  else { console.warn('CND:', cndRes.reason?.message); state.cnd = []; }
+
+  // Timestamps
+  const now = new Date().toLocaleString('pt-BR');
+  document.getElementById('footer-date').textContent = now;
+
+  const jiraTS = state.jira.find(r => r.atualizado_em)?.atualizado_em;
+  document.getElementById('sync-jira').textContent = jiraTS
+    ? new Date(jiraTS).toLocaleString('pt-BR') : (state.jira.length ? now : 'Indisponível');
+  document.getElementById('sync-cnd').textContent = state.cnd.length ? now : 'Indisponível';
+
+  updateKPIs();
+  renderActiveView();
+  showLoading(false);
+  document.getElementById('btn-refresh').disabled = false;
+}
+
+// ============================================================
+// KPI CARDS
+// ============================================================
+function updateKPIs() {
+  // Total chamados
+  const totalChamados = state.jira.reduce((s, r) => s + (parseInt(r.total_chamados) || 0), 0);
+  const municipiosJira = [...new Set(state.jira.map(r => r.municipio).filter(Boolean))];
+  document.getElementById('kpi-chamados').textContent = totalChamados || '—';
+  document.getElementById('kpi-chamados-sub').textContent =
+    state.jira.length ? `Em ${municipiosJira.length} municípios` : 'Dados indisponíveis';
+
+  // CND
+  const comCND = state.cnd.filter(r => r.statusAtual === 'Com CND').length;
+  document.getElementById('kpi-cnd').textContent = state.cnd.length ? comCND : '—';
+  document.getElementById('kpi-cnd-sub').textContent =
+    state.cnd.length ? `de ${state.cnd.length} municípios` : 'Dados indisponíveis';
+
+  // Risco
+  const emRisco = state.risco.filter(r => r.risco === 'Alto' || r.risco === 'Médio').length;
+  document.getElementById('kpi-risco').textContent = state.risco.length ? emRisco : '—';
+  document.getElementById('kpi-risco-sub').textContent =
+    state.risco.length ? `Alto ou Médio risco` : 'Dados indisponíveis';
+
+  // NPS
+  if (state.nps.length) {
+    const { score } = calcNPS(state.nps);
+    const el = document.getElementById('kpi-nps');
+    el.textContent = score;
+    el.style.color = score >= 50 ? 'var(--green)' : score >= 0 ? 'var(--yellow)' : 'var(--red)';
+    document.getElementById('kpi-nps-sub').textContent = `de ${state.nps.length} respostas`;
+  } else {
+    document.getElementById('kpi-nps').textContent = '—';
+    document.getElementById('kpi-nps-sub').textContent = 'Dados indisponíveis';
+  }
+}
+
+function calcNPS(rows) {
+  let promotores = 0, passivos = 0, detratores = 0;
+  rows.forEach(r => {
+    const nota = parseInt(r.nota);
+    if (nota >= 9)      promotores++;
+    else if (nota >= 7) passivos++;
+    else if (nota >= 0) detratores++;
+  });
+  const total = promotores + passivos + detratores;
+  const score = total > 0 ? Math.round((promotores - detratores) / total * 100) : 0;
+  return { score, promotores, passivos, detratores, total };
+}
+
+// ============================================================
+// TAB SWITCHING
+// ============================================================
+function switchTab(idx) {
+  document.querySelectorAll('.view').forEach((v, i) => v.classList.toggle('active', i === idx));
+  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  activeTab = idx;
+  renderView(idx);
+}
+
+function renderActiveView() { renderView(activeTab); }
+
+function renderView(idx) {
+  switch(idx) {
+    case 0: renderChamadosPorCliente(); break;
+    case 1: renderChamadosPorVertical(); break;
+    case 2: renderCND(); break;
+    case 3: renderRisco(); break;
+    case 4: renderNPSGeral(); break;
+    case 5: renderNPSPorCliente(); break;
+  }
+}
+
+// ============================================================
+// HELPERS DE CHART
+// ============================================================
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function unavailable(container, msg) {
+  container.innerHTML = `<div class="unavailable">
+    <div class="unavailable-icon">📭</div>
+    <div class="unavailable-text">${msg}</div>
+  </div>`;
+}
+
+// ============================================================
+// VIEW 1 — Chamados por Cliente
+// ============================================================
+function renderChamadosPorCliente() {
+  destroyChart('chart-0');
+  const canvas = document.getElementById('chart-0');
+
+  if (!state.jira.length) {
+    unavailable(canvas.parentElement, 'Dados do Jira indisponíveis. Verifique se a planilha está publicada.');
+    return;
+  }
+
+  // Agregar por município
+  const agg = {};
+  state.jira.forEach(r => {
+    const m = r.municipio || 'Não informado';
+    agg[m] = (agg[m] || 0) + (parseInt(r.total_chamados) || 0);
+  });
+  const sorted = Object.entries(agg).sort((a, b) => b[1] - a[1]);
+  const labels = sorted.map(e => e[0]);
+  const values = sorted.map(e => e[1]);
+
+  charts['chart-0'] = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ label: 'Chamados', data: values, backgroundColor: '#2B6CB0', borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x} chamados` } }
+      },
+      scales: {
+        x: { grid: { color: '#F0F2F5' }, ticks: { stepSize: 1 } },
+        y: { ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+// ============================================================
+// VIEW 2 — Chamados por Vertical (Stacked)
+// ============================================================
+function renderChamadosPorVertical() {
+  destroyChart('chart-1');
+  const canvas = document.getElementById('chart-1');
+
+  if (!state.jira.length) {
+    unavailable(canvas.parentElement, 'Dados do Jira indisponíveis.');
+    return;
+  }
+
+  // Coletar verticais únicas e municípios
+  const verticais = [...new Set(state.jira.map(r => r.vertical || 'Não informado'))].sort();
+  const municipios = [...new Set(state.jira.map(r => r.municipio || 'Não informado'))];
+
+  // Total por município para ordenação
+  const totPorMun = {};
+  state.jira.forEach(r => {
+    const m = r.municipio || 'Não informado';
+    totPorMun[m] = (totPorMun[m] || 0) + (parseInt(r.total_chamados) || 0);
+  });
+  const munOrdenados = municipios.sort((a, b) => totPorMun[b] - totPorMun[a]);
+
+  // Construir datasets (um por vertical)
+  const datasets = verticais.map(v => {
+    const data = munOrdenados.map(m => {
+      const row = state.jira.find(r => r.municipio === m && r.vertical === v);
+      return row ? (parseInt(row.total_chamados) || 0) : 0;
+    });
+    return {
+      label: v,
+      data,
+      backgroundColor: getVerticalColor(v),
+      borderRadius: 2,
+    };
+  });
+
+  charts['chart-1'] = new Chart(canvas, {
+    type: 'bar',
+    data: { labels: munOrdenados, datasets },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } },
+        tooltip: { mode: 'index' }
+      },
+      scales: {
+        x: { stacked: true, grid: { color: '#F0F2F5' } },
+        y: { stacked: true, ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+// ============================================================
+// VIEW 3 — CND
+// ============================================================
+function renderCND() {
+  destroyChart('chart-2');
+  const canvas = document.getElementById('chart-2');
+  const tableDiv = document.getElementById('cnd-table');
+
+  if (!state.cnd.length) {
+    unavailable(canvas.parentElement, 'Dados CND indisponíveis.');
+    tableDiv.innerHTML = '';
+    return;
+  }
+
+  const comCND   = state.cnd.filter(r => r.statusAtual === 'Com CND').length;
+  const semCND   = state.cnd.filter(r => r.statusAtual === 'Sem CND').length;
+  const total    = comCND + semCND;
+  const pctCom   = total ? Math.round(comCND / total * 100) : 0;
+
+  charts['chart-2'] = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: ['Com CND', 'Sem CND'],
+      datasets: [{ data: [comCND, semCND], backgroundColor: ['#276749','#C53030'], borderWidth: 0 }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 12 }, boxWidth: 14 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} (${Math.round(ctx.parsed/total*100)}%)` } }
+      }
+    },
+    plugins: [{
+      id: 'center-text',
+      afterDraw(chart) {
+        const { ctx, chartArea: { width, height, left, top } } = chart;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const cx = left + width / 2, cy = top + height / 2;
+        ctx.font = 'bold 28px system-ui';
+        ctx.fillStyle = '#1A202C';
+        ctx.fillText(`${pctCom}%`, cx, cy - 8);
+        ctx.font = '12px system-ui';
+        ctx.fillStyle = '#718096';
+        ctx.fillText('com CND', cx, cy + 14);
+        ctx.restore();
+      }
+    }]
+  });
+
+  // Tabela de períodos
+  const periodos = [
+    { label: 'Período 1', key: 'periodo1' },
+    { label: 'Período 2', key: 'periodo2' },
+    { label: 'Período 3 (atual)', key: 'periodo3' },
+  ];
+  const tabelaHTML = periodos.map(p => {
+    const com  = state.cnd.filter(r => r[p.key] === 'Com CND').length;
+    const sem  = state.cnd.filter(r => r[p.key] === 'Sem CND').length;
+    const tot  = com + sem;
+    const pct  = tot ? Math.round(com / tot * 100) : 0;
+    return `<tr>
+      <td style="padding:10px 12px;font-size:.85rem;font-weight:600">${p.label}</td>
+      <td style="padding:10px 12px;text-align:center">
+        <span style="background:#C6F6D5;color:#276749;padding:3px 10px;border-radius:12px;font-size:.8rem;font-weight:700">${com} Com CND</span>
+      </td>
+      <td style="padding:10px 12px;text-align:center">
+        <span style="background:#FED7D7;color:#C53030;padding:3px 10px;border-radius:12px;font-size:.8rem;font-weight:700">${sem} Sem CND</span>
+      </td>
+      <td style="padding:10px 12px;text-align:center;font-weight:700">${pct}%</td>
+    </tr>`;
+  }).join('');
+
+  tableDiv.innerHTML = `
+    <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">Evolução por Período</h4>
+    <table style="width:100%;border-collapse:collapse;background:var(--bg);border-radius:8px;overflow:hidden">
+      <thead>
+        <tr style="background:var(--header-bg);color:#fff">
+          <th style="padding:10px 12px;text-align:left;font-size:.78rem">Período</th>
+          <th style="padding:10px 12px;font-size:.78rem">Com CND</th>
+          <th style="padding:10px 12px;font-size:.78rem">Sem CND</th>
+          <th style="padding:10px 12px;font-size:.78rem">% Com</th>
+        </tr>
+      </thead>
+      <tbody>${tabelaHTML}</tbody>
+    </table>
+    <p style="font-size:.75rem;color:var(--text-muted);margin-top:10px">* Status atual = Período 3 (mais recente)</p>`;
+}
+
+// ============================================================
+// VIEW 4 — Risco de Exclusão
+// ============================================================
+function renderRisco() {
+  const container = document.getElementById('risk-container');
+  if (!state.risco.length) {
+    unavailable(container, 'Dados de risco indisponíveis. Verifique se a planilha está publicada.');
+    return;
+  }
+
+  const emRisco = state.risco.filter(r => r.risco && r.risco !== 'Sem Risco');
+  if (!emRisco.length) {
+    container.innerHTML = `<div class="unavailable" style="height:120px">
+      <div class="unavailable-icon">✅</div>
+      <div class="unavailable-text">Nenhum cliente em risco de exclusão</div>
+    </div>`;
+    return;
+  }
+
+  const ORDER = { 'Alto': 0, 'Médio': 1, 'Baixo': 2 };
+  const sorted = [...emRisco].sort((a, b) => (ORDER[a.risco] ?? 9) - (ORDER[b.risco] ?? 9));
+
+  // Cards se ≤ 10, gráfico de barra se > 10
+  if (sorted.length <= 10) {
+    const cards = sorted.map(r => `
+      <div class="risk-card ${r.risco}">
+        <div class="risk-card-badge">${r.risco}</div>
+        <div class="risk-card-title">${r.municipio}</div>
+        ${r.motivo ? `<div class="risk-card-motivo">${r.motivo}</div>` : ''}
+      </div>`).join('');
+    container.innerHTML = `<div class="risk-grid">${cards}</div>`;
+  } else {
+    destroyChart('chart-3');
+    container.innerHTML = '<div class="chart-wrap tall"><canvas id="chart-3"></canvas></div>';
+    const labels = sorted.map(r => r.municipio);
+    const colors = sorted.map(r =>
+      r.risco === 'Alto' ? '#C53030' : r.risco === 'Médio' ? '#C05621' : '#D69E2E');
+    charts['chart-3'] = new Chart(document.getElementById('chart-3'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{ label: 'Risco', data: sorted.map((_, i) => sorted.length - i), backgroundColor: colors, borderRadius: 4 }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: {
+            label: ctx => ` Risco: ${sorted[ctx.dataIndex].risco}`,
+            afterLabel: ctx => sorted[ctx.dataIndex].motivo ? `  ${sorted[ctx.dataIndex].motivo}` : ''
+          }}
+        },
+        scales: { x: { display: false }, y: { ticks: { font: { size: 11 } } } }
+      }
+    });
+  }
+}
+
+// ============================================================
+// VIEW 5 — NPS Geral
+// ============================================================
+function renderNPSGeral() {
+  destroyChart('chart-4');
+  const canvas = document.getElementById('chart-4');
+
+  if (!state.nps.length) {
+    unavailable(document.getElementById('nps-panel'), 'Dados NPS indisponíveis.');
+    return;
+  }
+
+  const { score, promotores, passivos, detratores, total } = calcNPS(state.nps);
+  const periodo = [...new Set(state.nps.map(r => r.periodo).filter(Boolean))].pop() || '';
+
+  // Score box
+  const numEl = document.getElementById('nps-score-num');
+  numEl.textContent = score;
+  numEl.className = 'nps-score-num ' + (score >= 50 ? 'positive' : score >= 0 ? 'neutral' : 'negative');
+
+  // Categorias
+  document.getElementById('nps-cats').innerHTML = [
+    { label: 'Promotores (9–10)', count: promotores, color: '#276749' },
+    { label: 'Passivos (7–8)',    count: passivos,   color: '#D69E2E' },
+    { label: 'Detratores (0–6)', count: detratores, color: '#C53030' },
+  ].map(c => `
+    <div class="nps-cat">
+      <div class="nps-cat-dot" style="background:${c.color}"></div>
+      <div class="nps-cat-info">
+        <div class="nps-cat-name">${c.label}</div>
+        <div class="nps-cat-count">${c.count} respostas (${total ? Math.round(c.count/total*100) : 0}%)</div>
+      </div>
+    </div>`).join('');
+
+  // Barra proporcional
+  const pProm = total ? promotores / total * 100 : 0;
+  const pPass = total ? passivos  / total * 100 : 0;
+  const pDetr = total ? detratores / total * 100 : 0;
+  document.getElementById('nps-bar').innerHTML = `
+    <div class="nps-bar-seg" style="width:${pProm}%;background:#276749" title="Promotores: ${promotores}"></div>
+    <div class="nps-bar-seg" style="width:${pPass}%;background:#D69E2E" title="Passivos: ${passivos}"></div>
+    <div class="nps-bar-seg" style="width:${pDetr}%;background:#C53030" title="Detratores: ${detratores}"></div>`;
+
+  // Gráfico de donut
+  charts['chart-4'] = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: ['Promotores', 'Passivos', 'Detratores'],
+      datasets: [{ data: [promotores, passivos, detratores], backgroundColor: ['#276749','#D69E2E','#C53030'], borderWidth: 0 }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } }
+      }
+    }
+  });
+}
+
+// ============================================================
+// VIEW 6 — NPS por Cliente
+// ============================================================
+function renderNPSPorCliente() {
+  destroyChart('chart-5');
+  const canvas = document.getElementById('chart-5');
+
+  if (!state.nps.length) {
+    unavailable(canvas.parentElement, 'Dados NPS indisponíveis.');
+    return;
+  }
+
+  // Média por município se houver múltiplas respostas, senão nota direta
+  const agg = {};
+  const cnt = {};
+  state.nps.forEach(r => {
+    const m = r.municipio || 'Não informado';
+    agg[m] = (agg[m] || 0) + (parseInt(r.nota) || 0);
+    cnt[m] = (cnt[m] || 0) + 1;
+  });
+  const entries = Object.entries(agg)
+    .map(([m, s]) => [m, Math.round(s / cnt[m])])
+    .sort((a, b) => b[1] - a[1]);
+
+  const labels = entries.map(e => e[0]);
+  const values = entries.map(e => e[1]);
+  const colors = values.map(v => v >= 9 ? '#276749' : v >= 7 ? '#D69E2E' : '#C53030');
+
+  // Linha de referência NPS score
+  const { score } = calcNPS(state.nps);
+
+  charts['chart-5'] = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Nota NPS',
+          data: values,
+          backgroundColor: colors,
+          borderRadius: 4,
+        }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: ctx => {
+            const nota = ctx.parsed.x;
+            const cat  = nota >= 9 ? 'Promotor' : nota >= 7 ? 'Passivo' : 'Detrator';
+            return ` Nota: ${nota} (${cat})`;
+          }
+        }}
+      },
+      scales: {
+        x: {
+          min: 0, max: 10,
+          grid: { color: '#F0F2F5' },
+          ticks: { stepSize: 1 }
+        },
+        y: { ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+// ============================================================
+// UTILITÁRIOS
+// ============================================================
+function showLoading(show) {
+  document.getElementById('loading-overlay').classList.toggle('hidden', !show);
+}
+
+// ============================================================
+// INICIALIZAÇÃO
+// ============================================================
+loadAllData();
+</script>
+</body>
+</html>
