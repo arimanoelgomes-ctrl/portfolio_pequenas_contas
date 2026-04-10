@@ -258,14 +258,22 @@
     .risk-kpis { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
     .risk-kpi-card {
       flex: 1; min-width: 100px;
-      background: var(--surface);
       border-radius: var(--radius);
       padding: 14px 16px;
-      border-left: 4px solid;
       text-align: center;
+      border: 1px solid transparent;
     }
     .risk-kpi-num   { font-size: 2rem; font-weight: 700; line-height: 1; }
-    .risk-kpi-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; font-weight: 600; }
+    .risk-kpi-label { font-size: 0.78rem; margin-top: 4px; font-weight: 600; }
+
+    /* ===== Colaboradores ===== */
+    .colab-layout { display: grid; grid-template-columns: 320px 1fr; gap: 24px; align-items: start; margin-top: 8px; }
+    .colab-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    .colab-table th { background: #1E3A5F; color: #fff; padding: 8px 10px; text-align: left; font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .colab-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    .colab-table tbody tr:hover { background: #f7faff; }
+    .colab-vaga-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; }
+    @media (max-width: 768px) { .colab-layout { grid-template-columns: 1fr; } }
     .risk-main { display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: start; }
     .risk-col-title {
       font-size: 0.78rem; font-weight: 700; color: var(--text-muted);
@@ -460,6 +468,7 @@
     <button class="tab-btn" onclick="switchTab(3)">⚠️ Risco de Exclusão</button>
     <button class="tab-btn" onclick="switchTab(4)">⭐ NPS Geral</button>
     <button class="tab-btn" onclick="switchTab(5)">📈 NPS por Cliente</button>
+    <button class="tab-btn" onclick="switchTab(6)">👥 Colaboradores</button>
   </div>
 
   <!-- Chart Panel -->
@@ -536,6 +545,13 @@
       <div class="chart-wrap tall"><canvas id="chart-5"></canvas></div>
     </div>
 
+    <!-- View 7: Colaboradores -->
+    <div class="view" id="view-6">
+      <div class="view-title">Colaboradores</div>
+      <div class="view-subtitle">Distribuição e listagem da equipe por vaga • Fonte: Google Sheets</div>
+      <div id="colab-container" style="margin-top:8px"></div>
+    </div>
+
   </div>
 </main>
 
@@ -580,7 +596,7 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [] };
+const state = { jira: [], risco: [], nps: [], cnd: [], colaboradores: [] };
 const charts = {};
 let activeTab = 0;
 
@@ -658,11 +674,12 @@ async function loadAllData() {
   showLoading(true);
   document.getElementById('btn-refresh').disabled = true;
 
-  const [jiraRes, riscoRes, npsRes, cndRes] = await Promise.allSettled([
+  const [jiraRes, riscoRes, npsRes, cndRes, colabRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
     fetchSheet('NPS_Calculado'),
     fetchCND(),
+    fetchSheet('Colaboradores'),
   ]);
 
   if (jiraRes.status === 'fulfilled')  state.jira  = jiraRes.value;
@@ -676,6 +693,9 @@ async function loadAllData() {
 
   if (cndRes.status === 'fulfilled')   state.cnd   = cndRes.value;
   else { console.warn('CND:', cndRes.reason?.message); state.cnd = []; }
+
+  if (colabRes.status === 'fulfilled') state.colaboradores = colabRes.value;
+  else { console.warn('Colaboradores:', colabRes.reason?.message); state.colaboradores = []; }
 
   // Timestamps
   const now = new Date().toLocaleString('pt-BR');
@@ -768,6 +788,7 @@ function renderView(idx) {
     case 3: renderRisco(); break;
     case 4: renderNPSGeral(); break;
     case 5: renderNPSPorCliente(); break;
+    case 6: renderColaboradores(); break;
   }
 }
 
@@ -1089,21 +1110,21 @@ function renderRisco() {
 
   // ── KPI cards ──────────────────────────────────────────────
   const kpiHtml = `<div class="risk-kpis">
-    <div class="risk-kpi-card" style="border-color:#dc2626">
+    <div class="risk-kpi-card" style="background:#fef2f2;border-color:#fca5a5">
       <div class="risk-kpi-num" style="color:#dc2626">${alto.length}</div>
-      <div class="risk-kpi-label">Alto Risco</div>
+      <div class="risk-kpi-label" style="color:#b91c1c">Alto Risco</div>
     </div>
-    <div class="risk-kpi-card" style="border-color:#ea580c">
+    <div class="risk-kpi-card" style="background:#fff7ed;border-color:#fdba74">
       <div class="risk-kpi-num" style="color:#ea580c">${medio.length}</div>
-      <div class="risk-kpi-label">Médio Risco</div>
+      <div class="risk-kpi-label" style="color:#c2410c">Médio Risco</div>
     </div>
-    ${baixo.length ? `<div class="risk-kpi-card" style="border-color:#d97706">
+    ${baixo.length ? `<div class="risk-kpi-card" style="background:#fefce8;border-color:#fde047">
       <div class="risk-kpi-num" style="color:#d97706">${baixo.length}</div>
-      <div class="risk-kpi-label">Baixo Risco</div>
+      <div class="risk-kpi-label" style="color:#b45309">Baixo Risco</div>
     </div>` : ''}
-    <div class="risk-kpi-card" style="border-color:#16a34a">
+    <div class="risk-kpi-card" style="background:#f0fdf4;border-color:#86efac">
       <div class="risk-kpi-num" style="color:#16a34a">${semRisco.length}</div>
-      <div class="risk-kpi-label">Sem Risco</div>
+      <div class="risk-kpi-label" style="color:#15803d">Sem Risco</div>
     </div>
   </div>`;
 
@@ -1368,6 +1389,94 @@ function renderNPSPorCliente() {
           ticks: { stepSize: 25, callback: v => v }
         },
         y: { ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+// ============================================================
+// VIEW 7 — Colaboradores
+// ============================================================
+function renderColaboradores() {
+  destroyChart('chart-6');
+  const container = document.getElementById('colab-container');
+
+  if (!state.colaboradores.length) {
+    unavailable(container, 'Dados de colaboradores indisponíveis. Verifique se a planilha está publicada.');
+    return;
+  }
+
+  // Paleta de cores para vagas
+  const COLAB_COLORS = [
+    '#2B6CB0','#276749','#C05621','#805AD5','#0987A0',
+    '#C53030','#DD6B20','#B7791F','#2C7A7B','#553C9A',
+    '#2F855A','#9B2C2C','#2A4365','#744210','#1A365D',
+  ];
+
+  // Agrupar por vaga
+  const vagaMap = {};
+  state.colaboradores.forEach(r => {
+    const v = (r.vaga || 'Sem vaga').trim();
+    vagaMap[v] = (vagaMap[v] || 0) + 1;
+  });
+  const vagaEntries = Object.entries(vagaMap).sort((a, b) => b[1] - a[1]);
+  const vagaLabels  = vagaEntries.map(e => e[0]);
+  const vagaCounts  = vagaEntries.map(e => e[1]);
+  const vagaColors  = vagaLabels.map((_, i) => COLAB_COLORS[i % COLAB_COLORS.length]);
+
+  // Mapa label→color para badges da tabela
+  const colorByVaga = {};
+  vagaLabels.forEach((v, i) => { colorByVaga[v] = COLAB_COLORS[i % COLAB_COLORS.length]; });
+
+  // Linhas da tabela
+  const tableRows = state.colaboradores.map(r => {
+    const vaga = (r.vaga || '').trim();
+    const cor  = colorByVaga[vaga] || '#718096';
+    return `<tr>
+      <td>${r.analista || '—'}</td>
+      <td><span class="colab-vaga-badge" style="background:${cor}20;color:${cor};border:1px solid ${cor}40">${vaga || '—'}</span></td>
+      <td>${r.area_de_atuacao || '—'}</td>
+      <td>${r.regiao || '—'}</td>
+      <td>${r.area_de_atendimento || '—'}</td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="colab-layout">
+      <div>
+        <div class="risk-col-title">Distribuição por Vaga</div>
+        <div style="height:300px"><canvas id="chart-6"></canvas></div>
+      </div>
+      <div>
+        <div class="risk-col-title">Equipe — ${state.colaboradores.length} colaboradores</div>
+        <table class="colab-table">
+          <thead><tr>
+            <th>Analista</th><th>Vaga</th><th>Área de Atuação</th><th>Região</th><th>Área de Atendimento</th>
+          </tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  charts['chart-6'] = new Chart(document.getElementById('chart-6'), {
+    type: 'pie',
+    data: {
+      labels: vagaLabels,
+      datasets: [{
+        data: vagaCounts,
+        backgroundColor: vagaColors,
+        borderWidth: 2,
+        borderColor: '#fff',
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12, padding: 10 } },
+        tooltip: { callbacks: {
+          label: ctx => ` ${ctx.label}: ${ctx.parsed} colaborador${ctx.parsed !== 1 ? 'es' : ''}`
+        }}
       }
     }
   });

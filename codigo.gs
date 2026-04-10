@@ -83,8 +83,11 @@ const FIELD_MUNICIPIO = 'customfield_10331'; // Município (string)
 const FIELD_VERTICAL  = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
 const SHEET_TAB_NAME  = 'Jira_Chamados';
 const CND_TAB_NAME    = 'CND_Municipios';
-const CND_SHEET_ID    = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
-const NPS_TAB_NAME    = 'NPS_Calculado';
+const CND_SHEET_ID             = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
+const NPS_TAB_NAME             = 'NPS_Calculado';
+const COLABORADORES_SHEET_ID   = '1ksgbwdf5dgsoI9XUiEobFKzsytA_XaOFSNUDlOX0Apk';
+const COLABORADORES_GID        = 1645653528;
+const COLABORADORES_TAB_NAME   = 'Colaboradores';
 const PAGE_SIZE       = 100;
 const SLEEP_MS        = 200;
 
@@ -102,6 +105,7 @@ function onTimeTrigger() {
     Logger.log(`  Jira: ${rows.length} linhas gravadas`);
     fetchAndStoreCND();
     fetchAndStoreNPS();
+    fetchAndStoreColaboradores();
     Logger.log(`✅ Concluído em ${Math.round((new Date()-inicio)/1000)}s`);
   } catch (e) {
     Logger.log(`❌ ERRO: ${e.message}`);
@@ -237,6 +241,60 @@ function fetchAndStoreNPS() {
   h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
   tabOut.setFrozenRows(1);
   Logger.log(`  NPS_Calculado: ${rows.length} municípios gravados`);
+}
+
+// ────────────────────────────────────────────────────────────
+// COLABORADORES — lê planilha de colaboradores e salva na aba Colaboradores
+// ────────────────────────────────────────────────────────────
+function fetchAndStoreColaboradores() {
+  Logger.log('  Buscando dados de Colaboradores...');
+  const ssColabs = SpreadsheetApp.openById(COLABORADORES_SHEET_ID);
+  const tab = ssColabs.getSheets().find(s => s.getSheetId() === COLABORADORES_GID);
+  if (!tab) {
+    Logger.log('  Colaboradores: aba gid=' + COLABORADORES_GID + ' não encontrada');
+    return;
+  }
+
+  const values = tab.getDataRange().getValues();
+  if (values.length < 2) { Logger.log('  Colaboradores: sem dados'); return; }
+
+  const headers = values[0];
+  var iAnalista = -1, iVaga = -1, iArea = -1, iRegiao = -1, iAtend = -1;
+  headers.forEach(function(h, i) {
+    var s = h.toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (s.includes('analista'))           iAnalista = i;
+    if (s === 'vaga')                     iVaga = i;
+    if (s.includes('area de atuacao'))    iArea = i;
+    if (s.includes('regiao'))             iRegiao = i;
+    if (s.includes('area de atendimento')) iAtend = i;
+  });
+
+  var rows = values.slice(1)
+    .filter(function(row) { return row.some(function(c) { return c !== ''; }); })
+    .map(function(row) {
+      return [
+        iAnalista >= 0 ? String(row[iAnalista] || '') : '',
+        iVaga     >= 0 ? String(row[iVaga]     || '') : '',
+        iArea     >= 0 ? String(row[iArea]     || '') : '',
+        iRegiao   >= 0 ? String(row[iRegiao]   || '') : '',
+        iAtend    >= 0 ? String(row[iAtend]    || '') : '',
+      ];
+    });
+
+  const props   = PropertiesService.getScriptProperties();
+  const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
+  const ss      = SpreadsheetApp.openById(sheetId);
+  var tabOut = ss.getSheetByName(COLABORADORES_TAB_NAME);
+  if (!tabOut) tabOut = ss.insertSheet(COLABORADORES_TAB_NAME);
+
+  tabOut.getRange(1, 1, 1, 5).setValues([['analista', 'vaga', 'area_de_atuacao', 'regiao', 'area_de_atendimento']]);
+  if (tabOut.getLastRow() > 1) tabOut.getRange(2, 1, tabOut.getLastRow() - 1, 5).clearContent();
+  if (rows.length > 0) tabOut.getRange(2, 1, rows.length, 5).setValues(rows);
+
+  const hdr = tabOut.getRange(1, 1, 1, 5);
+  hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
+  tabOut.setFrozenRows(1);
+  Logger.log('  Colaboradores: ' + rows.length + ' registros gravados');
 }
 
 // ────────────────────────────────────────────────────────────
