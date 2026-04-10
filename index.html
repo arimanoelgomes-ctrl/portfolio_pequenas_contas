@@ -1399,6 +1399,7 @@ function renderNPSPorCliente() {
 // ============================================================
 function renderColaboradores() {
   destroyChart('chart-6');
+  destroyChart('chart-7');
   const container = document.getElementById('colab-container');
 
   if (!state.colaboradores.length) {
@@ -1406,14 +1407,17 @@ function renderColaboradores() {
     return;
   }
 
-  // Paleta de cores para vagas
   const COLAB_COLORS = [
     '#2B6CB0','#276749','#C05621','#805AD5','#0987A0',
     '#C53030','#DD6B20','#B7791F','#2C7A7B','#553C9A',
     '#2F855A','#9B2C2C','#2A4365','#744210','#1A365D',
   ];
+  const ATEND_COLORS = [
+    '#0987A0','#C05621','#276749','#805AD5','#2B6CB0',
+    '#B7791F','#C53030','#2C7A7B','#DD6B20','#553C9A',
+  ];
 
-  // Agrupar por vaga
+  // ── Agrupar por Vaga ──────────────────────────────────────
   const vagaMap = {};
   state.colaboradores.forEach(r => {
     const v = (r.vaga || 'Sem vaga').trim();
@@ -1423,12 +1427,21 @@ function renderColaboradores() {
   const vagaLabels  = vagaEntries.map(e => e[0]);
   const vagaCounts  = vagaEntries.map(e => e[1]);
   const vagaColors  = vagaLabels.map((_, i) => COLAB_COLORS[i % COLAB_COLORS.length]);
-
-  // Mapa label→color para badges da tabela
   const colorByVaga = {};
   vagaLabels.forEach((v, i) => { colorByVaga[v] = COLAB_COLORS[i % COLAB_COLORS.length]; });
 
-  // Linhas da tabela
+  // ── Agrupar por Área de Atendimento ───────────────────────
+  const atendMap = {};
+  state.colaboradores.forEach(r => {
+    const a = (r.area_de_atendimento || 'Não informado').trim();
+    atendMap[a] = (atendMap[a] || 0) + 1;
+  });
+  const atendEntries = Object.entries(atendMap).sort((a, b) => b[1] - a[1]);
+  const atendLabels  = atendEntries.map(e => e[0]);
+  const atendCounts  = atendEntries.map(e => e[1]);
+  const atendColors  = atendLabels.map((_, i) => ATEND_COLORS[i % ATEND_COLORS.length]);
+
+  // ── Linhas da tabela ──────────────────────────────────────
   const tableRows = state.colaboradores.map(r => {
     const vaga = (r.vaga || '').trim();
     const cor  = colorByVaga[vaga] || '#718096';
@@ -1442,43 +1455,47 @@ function renderColaboradores() {
   }).join('');
 
   container.innerHTML = `
-    <div class="colab-layout">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
       <div>
         <div class="risk-col-title">Distribuição por Vaga</div>
         <div style="height:300px"><canvas id="chart-6"></canvas></div>
       </div>
       <div>
-        <div class="risk-col-title">Equipe — ${state.colaboradores.length} colaboradores</div>
-        <table class="colab-table">
-          <thead><tr>
-            <th>Analista</th><th>Vaga</th><th>Área de Atuação</th><th>Região</th><th>Área de Atendimento</th>
-          </tr></thead>
-          <tbody>${tableRows}</tbody>
-        </table>
+        <div class="risk-col-title">Distribuição por Área de Atendimento</div>
+        <div style="height:300px"><canvas id="chart-7"></canvas></div>
       </div>
+    </div>
+    <div>
+      <div class="risk-col-title">Equipe — ${state.colaboradores.length} colaboradores</div>
+      <table class="colab-table">
+        <thead><tr>
+          <th>Analista</th><th>Vaga</th><th>Área de Atuação</th><th>Região</th><th>Área de Atendimento</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
     </div>`;
+
+  const pieOptions = (label) => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12, padding: 8 } },
+      tooltip: { callbacks: {
+        label: ctx => ` ${ctx.label}: ${ctx.parsed} colaborador${ctx.parsed !== 1 ? 'es' : ''}`
+      }}
+    }
+  });
 
   charts['chart-6'] = new Chart(document.getElementById('chart-6'), {
     type: 'pie',
-    data: {
-      labels: vagaLabels,
-      datasets: [{
-        data: vagaCounts,
-        backgroundColor: vagaColors,
-        borderWidth: 2,
-        borderColor: '#fff',
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12, padding: 10 } },
-        tooltip: { callbacks: {
-          label: ctx => ` ${ctx.label}: ${ctx.parsed} colaborador${ctx.parsed !== 1 ? 'es' : ''}`
-        }}
-      }
-    }
+    data: { labels: vagaLabels, datasets: [{ data: vagaCounts, backgroundColor: vagaColors, borderWidth: 2, borderColor: '#fff' }] },
+    options: pieOptions('vaga'),
+  });
+
+  charts['chart-7'] = new Chart(document.getElementById('chart-7'), {
+    type: 'pie',
+    data: { labels: atendLabels, datasets: [{ data: atendCounts, backgroundColor: atendColors, borderWidth: 2, borderColor: '#fff' }] },
+    options: pieOptions('atendimento'),
   });
 }
 
