@@ -129,6 +129,7 @@
     .kpi-card.green  { border-top-color: var(--green); }
     .kpi-card.red    { border-top-color: var(--red); }
     .kpi-card.yellow { border-top-color: var(--yellow); }
+    .kpi-card.purple { border-top-color: #7C3AED; }
     .kpi-label {
       font-size: 0.75rem;
       font-weight: 600;
@@ -459,6 +460,11 @@
       <div class="kpi-value" id="kpi-nps">—</div>
       <div class="kpi-sub" id="kpi-nps-sub">Carregando…</div>
     </div>
+    <div class="kpi-card purple" style="cursor:pointer" onclick="switchTab(7)" title="Ver detalhe das implantações">
+      <div class="kpi-label">Implantações Pendentes</div>
+      <div class="kpi-value" id="kpi-impl" style="color:#7C3AED">—</div>
+      <div class="kpi-sub" id="kpi-impl-sub">Carregando…</div>
+    </div>
   </div>
 
   <!-- Tab Navigation -->
@@ -493,11 +499,22 @@
     <!-- View 3: CND -->
     <div class="view" id="view-2">
       <div class="view-title">Situação CND do Portfólio</div>
-      <div class="view-subtitle">Clientes com e sem Certidão Negativa de Débito • Fonte: Sistema CND</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start;margin-top:8px">
-        <div><div class="chart-wrap short"><canvas id="chart-2"></canvas></div></div>
-        <div id="cnd-table"></div>
+      <div class="view-subtitle">Clientes com e sem Certidão Negativa de Débito por período • Fonte: Sistema CND</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start;margin-top:8px">
+        <div>
+          <div style="text-align:center;font-size:.8rem;font-weight:600;color:var(--text-muted);margin-bottom:6px">Período 1</div>
+          <div class="chart-wrap short"><canvas id="chart-cnd-p1"></canvas></div>
+        </div>
+        <div>
+          <div style="text-align:center;font-size:.8rem;font-weight:600;color:var(--text-muted);margin-bottom:6px">Período 2</div>
+          <div class="chart-wrap short"><canvas id="chart-cnd-p2"></canvas></div>
+        </div>
+        <div>
+          <div style="text-align:center;font-size:.8rem;font-weight:700;color:var(--accent);margin-bottom:6px">Período 3 — Atual ★</div>
+          <div class="chart-wrap short"><canvas id="chart-2"></canvas></div>
+        </div>
       </div>
+      <div id="cnd-table" style="margin-top:24px"></div>
     </div>
 
     <!-- View 4: Risco de Exclusão -->
@@ -763,6 +780,21 @@ function updateKPIs() {
     document.getElementById('kpi-nps').textContent = '—';
     document.getElementById('kpi-nps-sub').textContent = 'Dados indisponíveis';
   }
+
+  // Implantações
+  if (state.implantacoes.length) {
+    const totalImpl    = state.implantacoes.reduce((s, r) => s + (parseInt(r.total)     || 0), 0);
+    const totalAtras   = state.implantacoes.reduce((s, r) => s + (parseInt(r.atrasados) || 0), 0);
+    const munImpl      = new Set(state.implantacoes.map(r => r.municipio).filter(Boolean)).size;
+    const elImpl       = document.getElementById('kpi-impl');
+    elImpl.textContent = totalImpl;
+    elImpl.style.color = totalAtras > 0 ? '#DC2626' : '#7C3AED';
+    document.getElementById('kpi-impl-sub').textContent =
+      `${totalAtras} atrasada${totalAtras !== 1 ? 's' : ''} · ${munImpl} municípios`;
+  } else {
+    document.getElementById('kpi-impl').textContent = '—';
+    document.getElementById('kpi-impl-sub').textContent = 'Dados indisponíveis';
+  }
 }
 
 // NPS = % Promotores (9-10) − % Detratores (0-6). Neutros (7-8) não contam.
@@ -1017,92 +1049,105 @@ function renderChamadosPorVertical() {
 // VIEW 3 — CND
 // ============================================================
 function renderCND() {
-  destroyChart('chart-2');
-  const canvas = document.getElementById('chart-2');
+  ['chart-cnd-p1', 'chart-cnd-p2', 'chart-2'].forEach(id => destroyChart(id));
   const tableDiv = document.getElementById('cnd-table');
 
   if (!state.cnd.length) {
-    unavailable(canvas.parentElement, 'Dados CND indisponíveis.');
+    ['chart-cnd-p1','chart-cnd-p2','chart-2'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) unavailable(el.parentElement, 'Dados CND indisponíveis.');
+    });
     tableDiv.innerHTML = '';
     return;
   }
 
-  const comCND   = state.cnd.filter(r => r.statusAtual === 'Com CND').length;
-  const semCND   = state.cnd.filter(r => r.statusAtual === 'Sem CND').length;
-  const total    = comCND + semCND;
-  const pctCom   = total ? Math.round(comCND / total * 100) : 0;
+  // Helper: cria um donut CND para um período e registra no map de charts
+  function makeCNDDonut(canvasId, periodoKey, label) {
+    const com   = state.cnd.filter(r => r[periodoKey] === 'Com CND').length;
+    const sem   = state.cnd.filter(r => r[periodoKey] === 'Sem CND').length;
+    const total = com + sem;
+    const pct   = total ? Math.round(com / total * 100) : 0;
+    const isAtual = canvasId === 'chart-2';
 
-  charts['chart-2'] = new Chart(canvas, {
-    type: 'doughnut',
-    data: {
-      labels: ['Com CND', 'Sem CND'],
-      datasets: [{ data: [comCND, semCND], backgroundColor: ['#276749','#C53030'], borderWidth: 0 }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '65%',
-      plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 12 }, boxWidth: 14 } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} (${Math.round(ctx.parsed/total*100)}%)` } }
-      }
-    },
-    plugins: [{
-      id: 'center-text',
-      afterDraw(chart) {
-        const { ctx, chartArea: { width, height, left, top } } = chart;
-        ctx.save();
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const cx = left + width / 2, cy = top + height / 2;
-        ctx.font = 'bold 28px system-ui';
-        ctx.fillStyle = '#1A202C';
-        ctx.fillText(`${pctCom}%`, cx, cy - 8);
-        ctx.font = '12px system-ui';
-        ctx.fillStyle = '#718096';
-        ctx.fillText('com CND', cx, cy + 14);
-        ctx.restore();
-      }
-    }]
-  });
+    charts[canvasId] = new Chart(document.getElementById(canvasId), {
+      type: 'doughnut',
+      data: {
+        labels: ['Com CND', 'Sem CND'],
+        datasets: [{
+          data: [com, sem],
+          backgroundColor: ['#276749', '#C53030'],
+          borderWidth: isAtual ? 0 : 2,
+          borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '65%',
+        plugins: {
+          legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} (${total ? Math.round(ctx.parsed/total*100) : 0}%)` } }
+        }
+      },
+      plugins: [{
+        id: `center-text-${canvasId}`,
+        afterDraw(chart) {
+          const { ctx, chartArea: { width, height, left, top } } = chart;
+          ctx.save();
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const cx = left + width / 2, cy = top + height / 2;
+          ctx.font = `bold ${isAtual ? 28 : 24}px system-ui`;
+          ctx.fillStyle = '#1A202C';
+          ctx.fillText(`${pct}%`, cx, cy - 8);
+          ctx.font = '11px system-ui';
+          ctx.fillStyle = '#718096';
+          ctx.fillText('com CND', cx, cy + 13);
+          ctx.restore();
+        }
+      }]
+    });
+    return { com, sem, total, pct };
+  }
 
-  // Tabela de períodos
+  const p1 = makeCNDDonut('chart-cnd-p1', 'periodo1', 'Período 1');
+  const p2 = makeCNDDonut('chart-cnd-p2', 'periodo2', 'Período 2');
+  const p3 = makeCNDDonut('chart-2',       'periodo3', 'Período 3 (atual)');
+
+  // Tabela de evolução
   const periodos = [
-    { label: 'Período 1', key: 'periodo1' },
-    { label: 'Período 2', key: 'periodo2' },
-    { label: 'Período 3 (atual)', key: 'periodo3' },
+    { label: 'Período 1', stats: p1 },
+    { label: 'Período 2', stats: p2 },
+    { label: 'Período 3 (atual) ★', stats: p3, destaque: true },
   ];
   const tabelaHTML = periodos.map(p => {
-    const com  = state.cnd.filter(r => r[p.key] === 'Com CND').length;
-    const sem  = state.cnd.filter(r => r[p.key] === 'Sem CND').length;
-    const tot  = com + sem;
-    const pct  = tot ? Math.round(com / tot * 100) : 0;
-    return `<tr>
-      <td style="padding:10px 12px;font-size:.85rem;font-weight:600">${p.label}</td>
+    const { com, sem, total, pct } = p.stats;
+    const rowStyle = p.destaque ? 'background:#EBF8FF' : '';
+    return `<tr style="${rowStyle}">
+      <td style="padding:10px 12px;font-size:.85rem;font-weight:${p.destaque ? 700 : 600};color:${p.destaque ? 'var(--accent)' : 'inherit'}">${p.label}</td>
       <td style="padding:10px 12px;text-align:center">
         <span style="background:#C6F6D5;color:#276749;padding:3px 10px;border-radius:12px;font-size:.8rem;font-weight:700">${com} Com CND</span>
       </td>
       <td style="padding:10px 12px;text-align:center">
         <span style="background:#FED7D7;color:#C53030;padding:3px 10px;border-radius:12px;font-size:.8rem;font-weight:700">${sem} Sem CND</span>
       </td>
-      <td style="padding:10px 12px;text-align:center;font-weight:700">${pct}%</td>
+      <td style="padding:10px 12px;text-align:center;font-weight:700;color:${pct >= 50 ? '#276749' : '#C53030'}">${pct}%</td>
     </tr>`;
   }).join('');
 
   tableDiv.innerHTML = `
     <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">Evolução por Período</h4>
-    <table style="width:100%;border-collapse:collapse;background:var(--bg);border-radius:8px;overflow:hidden">
+    <table style="width:100%;border-collapse:collapse;background:var(--surface);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
       <thead>
         <tr style="background:var(--header-bg);color:#fff">
           <th style="padding:10px 12px;text-align:left;font-size:.78rem">Período</th>
           <th style="padding:10px 12px;font-size:.78rem">Com CND</th>
           <th style="padding:10px 12px;font-size:.78rem">Sem CND</th>
-          <th style="padding:10px 12px;font-size:.78rem">% Com</th>
+          <th style="padding:10px 12px;font-size:.78rem">% Com CND</th>
         </tr>
       </thead>
       <tbody>${tabelaHTML}</tbody>
-    </table>
-    <p style="font-size:.75rem;color:var(--text-muted);margin-top:10px">* Status atual = Período 3 (mais recente)</p>`;
+    </table>`
 }
 
 // ============================================================
