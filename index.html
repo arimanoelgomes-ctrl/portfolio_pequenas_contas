@@ -429,6 +429,7 @@
       <div class="sync-info">
         <div>Jira: <span id="sync-jira">—</span></div>
         <div>CND: <span id="sync-cnd">—</span></div>
+        <div>Implantações: <span id="sync-impl">—</span></div>
       </div>
       <button class="btn-refresh" id="btn-refresh" onclick="loadAllData()">⟳ Atualizar</button>
     </div>
@@ -469,6 +470,7 @@
     <button class="tab-btn" onclick="switchTab(4)">⭐ NPS Geral</button>
     <button class="tab-btn" onclick="switchTab(5)">📈 NPS por Cliente</button>
     <button class="tab-btn" onclick="switchTab(6)">👥 Colaboradores</button>
+    <button class="tab-btn" onclick="switchTab(7)">🔧 Implantações</button>
   </div>
 
   <!-- Chart Panel -->
@@ -552,6 +554,13 @@
       <div id="colab-container" style="margin-top:8px"></div>
     </div>
 
+    <!-- View 8: Implantações -->
+    <div class="view" id="view-7">
+      <div class="view-title">Implantações Pendentes e Em Andamento</div>
+      <div class="view-subtitle">Issues de implantação por município e vertical • Fonte: Jira</div>
+      <div id="impl-content" style="margin-top:8px"></div>
+    </div>
+
   </div>
 </main>
 
@@ -596,7 +605,7 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [], colaboradores: [] };
+const state = { jira: [], risco: [], nps: [], cnd: [], colaboradores: [], implantacoes: [] };
 const charts = {};
 let activeTab = 0;
 
@@ -674,12 +683,13 @@ async function loadAllData() {
   showLoading(true);
   document.getElementById('btn-refresh').disabled = true;
 
-  const [jiraRes, riscoRes, npsRes, cndRes, colabRes] = await Promise.allSettled([
+  const [jiraRes, riscoRes, npsRes, cndRes, colabRes, implRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
     fetchSheet('NPS_Calculado'),
     fetchCND(),
     fetchSheet('Colaboradores'),
+    fetchSheet('Jira_Implantacoes'),
   ]);
 
   if (jiraRes.status === 'fulfilled')  state.jira  = jiraRes.value;
@@ -697,6 +707,9 @@ async function loadAllData() {
   if (colabRes.status === 'fulfilled') state.colaboradores = colabRes.value;
   else { console.warn('Colaboradores:', colabRes.reason?.message); state.colaboradores = []; }
 
+  if (implRes.status === 'fulfilled')  state.implantacoes = implRes.value;
+  else { console.warn('Implantacoes:', implRes.reason?.message); state.implantacoes = []; }
+
   // Timestamps
   const now = new Date().toLocaleString('pt-BR');
   document.getElementById('footer-date').textContent = now;
@@ -705,6 +718,9 @@ async function loadAllData() {
   document.getElementById('sync-jira').textContent = jiraTS
     ? new Date(jiraTS).toLocaleString('pt-BR') : (state.jira.length ? now : 'Indisponível');
   document.getElementById('sync-cnd').textContent = state.cnd.length ? now : 'Indisponível';
+  const implTS = state.implantacoes.find(r => r.atualizado_em)?.atualizado_em;
+  document.getElementById('sync-impl').textContent = implTS
+    ? new Date(implTS).toLocaleString('pt-BR') : (state.implantacoes.length ? now : 'Indisponível');
 
   updateKPIs();
   renderActiveView();
@@ -789,6 +805,7 @@ function renderView(idx) {
     case 4: renderNPSGeral(); break;
     case 5: renderNPSPorCliente(); break;
     case 6: renderColaboradores(); break;
+    case 7: renderImplantacoes(); break;
   }
 }
 
@@ -1497,6 +1514,128 @@ function renderColaboradores() {
     data: { labels: atendLabels, datasets: [{ data: atendCounts, backgroundColor: atendColors, borderWidth: 2, borderColor: '#fff' }] },
     options: pieOptions('atendimento'),
   });
+}
+
+// ============================================================
+// VIEW 8 — Implantações por Município × Vertical (Pivot)
+// ============================================================
+const IMPL_VERTICAIS = ['Arrecadação','Atendimento','Contratos','Contábil','Educação','ISS','Parceiros','Pessoal','Plataforma','Saúde'];
+
+// Cor de fundo da célula pelo volume de issues (heatmap suave)
+function implCellColor(val) {
+  if (!val) return null;
+  if (val >= 5) return { bg: '#EBF4FF', text: '#1A365D', fw: '700' };
+  if (val >= 3) return { bg: '#EBF8FF', text: '#2B6CB0', fw: '600' };
+  return            { bg: '#F0FFF4', text: '#276749', fw: '500' };
+}
+
+function renderImplantacoes() {
+  const container = document.getElementById('impl-content');
+
+  if (!state.implantacoes.length) {
+    unavailable(container, 'Dados de implantações indisponíveis. Verifique se a planilha Jira_Implantacoes está publicada.');
+    return;
+  }
+
+  // Agregar por município × vertical
+  const munMap = {};
+  state.implantacoes.forEach(r => {
+    const m = (r.municipio || 'Não informado').trim();
+    const v = (r.vertical   || 'Não informado').trim();
+    const n = parseInt(r.total) || parseInt(r.total_chamados) || 0;
+    if (!munMap[m]) munMap[m] = { total: 0 };
+    munMap[m][v] = (munMap[m][v] || 0) + n;
+    munMap[m].total += n;
+  });
+
+  // Municipalities sorted by total desc
+  const municipios = Object.entries(munMap)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(e => e[0]);
+
+  const totalGeral = municipios.reduce((s, m) => s + munMap[m].total, 0);
+
+  // Totais por vertical (rodapé)
+  const totalPorVertical = {};
+  IMPL_VERTICAIS.forEach(v => {
+    totalPorVertical[v] = municipios.reduce((s, m) => s + (munMap[m][v] || 0), 0);
+  });
+
+  const thStyle = `padding:9px 10px;text-align:center;font-size:.74rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+  const thFirst = `padding:9px 14px;text-align:left;font-size:.74rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+
+  const headerCells = IMPL_VERTICAIS.map(v =>
+    `<th style="${thStyle}" title="${v}">${v.length > 10 ? v.slice(0,9)+'…' : v}</th>`).join('');
+
+  const bodyRows = municipios.map((m, ri) => {
+    const bg = ri % 2 === 0 ? '#FFFFFF' : '#F7FAFC';
+    const cells = IMPL_VERTICAIS.map(v => {
+      const val = munMap[m][v] || 0;
+      const cellBase = `padding:7px 10px;text-align:center;font-size:.82rem;border-right:1px solid #EDF2F7`;
+      if (!val) return `<td style="${cellBase};color:#CBD5E0">—</td>`;
+      const c = implCellColor(val);
+      return `<td style="${cellBase};background:${c.bg};color:${c.text};font-weight:${c.fw}">${val}</td>`;
+    }).join('');
+
+    return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
+      <td style="padding:7px 14px;font-size:.82rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
+      ${cells}
+      <td style="padding:7px 10px;text-align:center;font-size:.82rem;font-weight:700;color:#1E3A5F;border-left:1px solid #CBD5E0">${munMap[m].total}</td>
+    </tr>`;
+  }).join('');
+
+  // Linha de totais
+  const footCells = IMPL_VERTICAIS.map(v => {
+    const val = totalPorVertical[v];
+    return `<td style="padding:7px 10px;text-align:center;font-size:.8rem;font-weight:700;color:#1E3A5F;border-right:1px solid #CBD5E0;background:#EDF2F7">${val || '—'}</td>`;
+  }).join('');
+
+  // KPI summary
+  const kpiHtml = `
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="background:#EBF4FF;border:1px solid #BEE3F8;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:1.8rem;font-weight:700;color:#2B6CB0;line-height:1">${totalGeral}</div>
+        <div style="font-size:.72rem;font-weight:600;color:#4299E1;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Total Issues</div>
+      </div>
+      <div style="background:#F0FFF4;border:1px solid #9AE6B4;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:1.8rem;font-weight:700;color:#276749;line-height:1">${municipios.length}</div>
+        <div style="font-size:.72rem;font-weight:600;color:#38A169;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Municípios</div>
+      </div>
+      <div style="background:#FFFAF0;border:1px solid #FBD38D;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:1.8rem;font-weight:700;color:#C05621;line-height:1">${IMPL_VERTICAIS.filter(v => totalPorVertical[v] > 0).length}</div>
+        <div style="font-size:.72rem;font-weight:600;color:#DD6B20;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Verticais ativas</div>
+      </div>
+    </div>`;
+
+  const legendaHtml = `
+    <div style="display:flex;gap:16px;margin-top:12px;font-size:.75rem;color:var(--text-muted);flex-wrap:wrap">
+      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#F0FFF4;border:1px solid #9AE6B4"></span> 1–2</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#EBF8FF;border:1px solid #90CDF4"></span> 3–4</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#EBF4FF;border:1px solid #BEE3F8"></span> 5+</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#FFFFFF;border:1px solid #E2E8F0"></span> —</span>
+    </div>`;
+
+  container.innerHTML = kpiHtml + `
+    <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+      <table style="width:100%;border-collapse:collapse;font-family:inherit">
+        <thead>
+          <tr style="background:#1E3A5F;color:#fff">
+            <th style="${thFirst}">Município</th>
+            ${headerCells}
+            <th style="${thStyle}">T</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot>
+          <tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
+            <td style="padding:7px 14px;font-size:.8rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
+            ${footCells}
+            <td style="padding:7px 10px;text-align:center;font-size:.8rem;font-weight:700;color:#1E3A5F;border-left:1px solid #CBD5E0;background:#E2E8F0">${totalGeral}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    ${legendaHtml}`;
 }
 
 // ============================================================

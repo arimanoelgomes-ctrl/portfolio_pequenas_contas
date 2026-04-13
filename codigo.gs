@@ -79,9 +79,13 @@ function readSheetData(sheetName) {
 // ────────────────────────────────────────────────────────────
 const JQL = `category = "Projetos ativos de atendimento - Filial" AND resolution = Unresolved AND issuetype not in (Melhoria, "Melhoria (sub-tarefa)") AND "Equipe responsável" in (Suporte, Residente, Serviço) AND (Vertical not in (Saúde, Educação) AND Município in ("Abdon Batista", Agrolândia, "Anita Garibaldi", Angelina, Anchieta, "Balneário Arroio do Silva", "Balneário Barra do Sul", "Balneário Camboriú", "Balneário Piçarras", Bandeirante, "Barra Bonita", "Barra Velha", "Bela Vista do Toldo", Belmonte, "Benedito Novo", Brunópolis, Caçador, Calmon, "Campo Alegre", "Capão Alto", Chapecó, Concórdia, "Dona Emma", "Erval Velho", Ermo, "Frei Rogério", Iraceminha, Imbuia, Ipira, Ipuaçu, Itá, Itajaí, Jupiá, Lacerdópolis, "Lajeado Grande", "Leoberto Leal", "Lindóia do Sul", "Luiz Alves", Luzerna, Mafra, Massaranduba, Meleiro, Modelo, "Morro da Fumaça", "Morro Grande", Penha, Peritiba, "Pescaria Brava", Pomerode, "Praia Grande", "Rio do Sul", "Rio Fortuna", "Rio Rufino", Saltinho, "Santa Terezinha", "São Bernardino", "São Bonifácio", "São Cristovão do Sul", "São João do Oeste", "São José do Cedro", "São Martinho", "São Miguel da Boa Vista", "São Pedro de Alcântara", Tangará, "Treze de Maio", Tigrinhos, Timbó, Treviso, Videira) OR Vertical in (Saúde, Educação) AND "Equipe responsável" not in (Suporte) AND Município in ("Abdon Batista", Agrolândia, "Anita Garibaldi", Angelina, Anchieta, "Balneário Arroio do Silva", "Balneário Barra do Sul", "Balneário Camboriú", "Balneário Piçarras", Bandeirante, "Barra Bonita", "Barra Velha", "Bela Vista do Toldo", Belmonte, "Benedito Novo", Brunópolis, Caçador, Calmon, "Campo Alegre", "Capão Alto", Chapecó, Concórdia, "Dona Emma", "Erval Velho", Ermo, "Frei Rogério", Iraceminha, Imbuia, Ipira, Ipuaçu, Itá, Itajaí, Jupiá, Lacerdópolis, "Lajeado Grande", "Leoberto Leal", "Lindóia do Sul", "Luiz Alves", Luzerna, Mafra, Massaranduba, Meleiro, Modelo, "Morro da Fumaça", "Morro Grande", Penha, Peritiba, "Pescaria Brava", Pomerode, "Praia Grande", "Rio do Sul", "Rio Fortuna", "Rio Rufino", Saltinho, "Santa Terezinha", "São Bernardino", "São Bonifácio", "São Cristovão do Sul", "São João do Oeste", "São José do Cedro", "São Martinho", "São Miguel da Boa Vista", "São Pedro de Alcântara", Tangará, "Treze de Maio", Tigrinhos, Timbó, Treviso, Videira))`;
 
+// JQL para implantações pendentes e em andamento
+const JQL_IMPLANTACOES = `(labels not in (implantaçãoRecusada) OR labels is EMPTY) AND issuetype = Implantação AND "Equipe responsável" not in (Revenda, Parceiros, Produto, "Produto extensões", Tribunais) AND resolution = Unresolved AND status not in ("Produto contratado", Reprovada) AND (Município in ("Abdon Batista", Agrolândia, "Anita Garibaldi", Angelina, Anchieta, "Balneário Arroio do Silva", "Balneário Barra do Sul", "Balneário Camboriú", "Balneário Piçarras", Bandeirante, "Barra Bonita", "Barra Velha", "Bela Vista do Toldo", Belmonte, "Benedito Novo", Brunópolis, Caçador, Calmon, "Campo Alegre", "Capão Alto", Chapecó, Concórdia, "Dona Emma", "Erval Velho", Ermo, "Frei Rogério", Iraceminha, Imbuia, Ipira, Ipuaçu, Itá, Itajaí, Jupiá, Lacerdópolis, "Lajeado Grande", "Leoberto Leal", "Lindóia do Sul", "Luiz Alves", Luzerna, Mafra, Massaranduba, Meleiro, Modelo, "Morro da Fumaça", "Morro Grande", Penha, Peritiba, "Pescaria Brava", Pomerode, "Praia Grande", "Rio do Sul", "Rio Fortuna", "Rio Rufino", Saltinho, "Santa Terezinha", "São Bernardino", "São Bonifácio", "São Cristovão do Sul", "São João do Oeste", "São José do Cedro", "São Martinho", "São Miguel da Boa Vista", "São Pedro de Alcântara", Tangará, "Treze de Maio", Tigrinhos, Timbó, Treviso, Videira) OR Município in ("Campos Novos") AND Entidade = "CIMPLASC - CONSORCIO INTERMUNICIPAL DE SANEAMENTO BASICO MEIO AMBIENTE ATENCAO A SANIDADE DOS PRODUTOS DE ORIGEM AGROPECUARIA SEGURANCA ALIMENTAR - Campos Novos/SC") ORDER BY status DESC, cf[21500] DESC, issuetype ASC, Município ASC, cf[10300] ASC, cf[22902] ASC, assignee DESC`;
+
 const FIELD_MUNICIPIO = 'customfield_10331'; // Município (string)
 const FIELD_VERTICAL  = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
 const SHEET_TAB_NAME  = 'Jira_Chamados';
+const IMPL_TAB_NAME   = 'Jira_Implantacoes';
 const CND_TAB_NAME    = 'CND_Municipios';
 const CND_SHEET_ID             = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
 const NPS_TAB_NAME             = 'NPS_Calculado';
@@ -106,6 +110,7 @@ function onTimeTrigger() {
     fetchAndStoreCND();
     fetchAndStoreNPS();
     fetchAndStoreColaboradores();
+    fetchAndStoreImplantacoes();
     Logger.log(`✅ Concluído em ${Math.round((new Date()-inicio)/1000)}s`);
   } catch (e) {
     Logger.log(`❌ ERRO: ${e.message}`);
@@ -295,6 +300,85 @@ function fetchAndStoreColaboradores() {
   hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
   tabOut.setFrozenRows(1);
   Logger.log('  Colaboradores: ' + rows.length + ' registros gravados');
+}
+
+// ────────────────────────────────────────────────────────────
+// IMPLANTAÇÕES — coleta issues de implantação do Jira e salva pivot
+// Agrupa por Município × Vertical → aba Jira_Implantacoes
+// ────────────────────────────────────────────────────────────
+function fetchAndStoreImplantacoes() {
+  Logger.log('  Buscando implantações do Jira...');
+  const props    = PropertiesService.getScriptProperties();
+  const baseUrl  = props.getProperty('JIRA_BASE_URL') || '';
+  const email    = props.getProperty('JIRA_EMAIL')    || '';
+  const password = props.getProperty('JIRA_API_TOKEN') || '';
+
+  if (!baseUrl || !email || !password) {
+    Logger.log('  Implantações: Script Properties não configuradas, pulando.');
+    return;
+  }
+
+  const sessionCookie = getJiraSession(baseUrl, email, password);
+  const headers = { 'Cookie': sessionCookie, 'Accept': 'application/json', 'Content-Type': 'application/json' };
+  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL];
+
+  const allIssues = [];
+  let startAt = 0;
+
+  while (true) {
+    const url  = `${baseUrl}/rest/api/2/search`;
+    const body = JSON.stringify({ jql: JQL_IMPLANTACOES, fields: fields, maxResults: PAGE_SIZE, startAt: startAt });
+
+    const resp = UrlFetchApp.fetch(url, { method: 'post', headers, payload: body, muteHttpExceptions: true });
+    const code = resp.getResponseCode();
+
+    if (code !== 200) {
+      Logger.log(`  Implantações: Jira HTTP ${code}: ${resp.getContentText().substring(0, 200)}`);
+      return;
+    }
+
+    const data = JSON.parse(resp.getContentText());
+    allIssues.push(...data.issues);
+    Logger.log(`  Impl pág ${Math.floor(startAt/PAGE_SIZE)+1}: ${data.issues.length} issues (${allIssues.length}/${data.total})`);
+
+    if (allIssues.length >= data.total || data.issues.length === 0) break;
+    startAt += PAGE_SIZE;
+    Utilities.sleep(SLEEP_MS);
+  }
+
+  Logger.log(`  Implantações coletadas: ${allIssues.length}`);
+
+  // Agregar por Município × Vertical
+  const map = {};
+  const ts  = new Date().toISOString();
+  allIssues.forEach(issue => {
+    const municipio = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
+    const vObj      = issue.fields[FIELD_VERTICAL];
+    const vertical  = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
+    const key       = `${municipio}||${vertical}`;
+    map[key]        = (map[key] || 0) + 1;
+  });
+
+  const rows = Object.entries(map).map(([key, count]) => {
+    const [municipio, vertical] = key.split('||');
+    return [municipio, vertical, count, ts];
+  }).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
+
+  // Gravar na aba Jira_Implantacoes
+  const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
+  const ss      = SpreadsheetApp.openById(sheetId);
+  let tab       = ss.getSheetByName(IMPL_TAB_NAME);
+  if (!tab) { tab = ss.insertSheet(IMPL_TAB_NAME); Logger.log(`  Aba "${IMPL_TAB_NAME}" criada.`); }
+
+  tab.getRange(1, 1, 1, 4).setValues([['municipio','vertical','total','atualizado_em']]);
+  const last = tab.getLastRow();
+  if (last > 1) tab.getRange(2, 1, last - 1, 4).clearContent();
+  if (rows.length > 0) tab.getRange(2, 1, rows.length, 4).setValues(rows);
+
+  const h = tab.getRange(1, 1, 1, 4);
+  h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
+  tab.setFrozenRows(1);
+  Logger.log(`  "${IMPL_TAB_NAME}": ${rows.length} linhas gravadas (${allIssues.length} issues, ${Object.keys(map).length} combinações mun×vertical).`);
 }
 
 // ────────────────────────────────────────────────────────────
