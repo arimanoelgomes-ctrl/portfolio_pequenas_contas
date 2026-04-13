@@ -460,7 +460,7 @@
       <div class="kpi-value" id="kpi-nps">—</div>
       <div class="kpi-sub" id="kpi-nps-sub">Carregando…</div>
     </div>
-    <div class="kpi-card purple" style="cursor:pointer" onclick="switchTab(7)" title="Ver detalhe das implantações">
+    <div class="kpi-card purple" style="cursor:pointer" onclick="switchTab(6)" title="Ver detalhe das implantações">
       <div class="kpi-label">Implantações Pendentes</div>
       <div class="kpi-value" id="kpi-impl" style="color:#7C3AED">—</div>
       <div class="kpi-sub" id="kpi-impl-sub">Carregando…</div>
@@ -469,31 +469,28 @@
 
   <!-- Tab Navigation -->
   <div class="tab-nav">
-    <button class="tab-btn active" onclick="switchTab(0)">📊 Chamados por Cliente</button>
-    <button class="tab-btn" onclick="switchTab(1)">🏷️ Por Vertical</button>
-    <button class="tab-btn" onclick="switchTab(2)">🏛️ CND</button>
-    <button class="tab-btn" onclick="switchTab(3)">⚠️ Risco de Exclusão</button>
-    <button class="tab-btn" onclick="switchTab(4)">⭐ NPS Geral</button>
-    <button class="tab-btn" onclick="switchTab(5)">📈 NPS por Cliente</button>
-    <button class="tab-btn" onclick="switchTab(6)">👥 Colaboradores</button>
-    <button class="tab-btn" onclick="switchTab(7)">🔧 Implantações</button>
+    <button class="tab-btn active" onclick="switchTab(0)">📊 Chamados</button>
+    <button class="tab-btn" onclick="switchTab(1)">🏛️ CND</button>
+    <button class="tab-btn" onclick="switchTab(2)">⚠️ Risco de Exclusão</button>
+    <button class="tab-btn" onclick="switchTab(3)">⭐ NPS Geral</button>
+    <button class="tab-btn" onclick="switchTab(4)">📈 NPS por Cliente</button>
+    <button class="tab-btn" onclick="switchTab(5)">👥 Colaboradores</button>
+    <button class="tab-btn" onclick="switchTab(6)">🔧 Implantações</button>
   </div>
 
   <!-- Chart Panel -->
   <div class="chart-panel">
 
-    <!-- View 1: Chamados por Cliente -->
+    <!-- View 1: Chamados por Cliente + Por Vertical -->
     <div class="view active" id="view-0">
       <div class="view-title">Chamados em Aberto por Cliente</div>
       <div class="view-subtitle">Total de chamados abertos por município • Fonte: Jira</div>
       <div id="view0-content"></div>
-    </div>
-
-    <!-- View 2: Por Vertical -->
-    <div class="view" id="view-1">
-      <div class="view-title">Chamados por Cliente e Vertical</div>
-      <div class="view-subtitle">Distribuição de chamados por vertical dentro de cada município • Fonte: Jira</div>
-      <div id="view1-content"></div>
+      <div style="margin-top:36px;padding-top:28px;border-top:2px solid #E2E8F0">
+        <div class="view-title" style="font-size:1.1rem;margin-bottom:4px">Chamados por Vertical</div>
+        <div class="view-subtitle">Distribuição de chamados por vertical dentro de cada município • Fonte: Jira</div>
+        <div id="view1-content"></div>
+      </div>
     </div>
 
     <!-- View 3: CND -->
@@ -833,14 +830,13 @@ function renderActiveView() { renderView(activeTab); }
 
 function renderView(idx) {
   switch(idx) {
-    case 0: renderChamadosPorCliente(); break;
-    case 1: renderChamadosPorVertical(); break;
-    case 2: renderCND(); break;
-    case 3: renderRisco(); break;
-    case 4: renderNPSGeral(); break;
-    case 5: renderNPSPorCliente(); break;
-    case 6: renderColaboradores(); break;
-    case 7: renderImplantacoes(); break;
+    case 0: renderChamadosPorCliente(); renderChamadosPorVertical(); break;
+    case 1: renderCND(); break;
+    case 2: renderRisco(); break;
+    case 3: renderNPSGeral(); break;
+    case 4: renderNPSPorCliente(); break;
+    case 5: renderColaboradores(); break;
+    case 6: renderImplantacoes(); break;
   }
 }
 
