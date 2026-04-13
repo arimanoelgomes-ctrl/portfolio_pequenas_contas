@@ -1517,54 +1517,54 @@ function renderColaboradores() {
 }
 
 // ============================================================
-// VIEW 8 — Implantações por Município × Vertical (Pivot)
+// VIEW 7 — Implantações por Município × Vertical (Pivot + Gráficos)
 // ============================================================
 const IMPL_VERTICAIS = ['Arrecadação','Atendimento','Contratos','Contábil','Educação','ISS','Parceiros','Pessoal','Plataforma','Saúde'];
+let implCharts = [];
 
-// Cor da célula baseada no status de prazo
 function implCellStyle(cell) {
   if (!cell || cell.total === 0) return null;
-  if (cell.atrasados > 0)
-    return { bg: '#FEE2E2', text: '#DC2626', fw: '700', border: '#FCA5A5' }; // vermelho — atrasado
-  if (cell.no_prazo > 0)
-    return { bg: '#DCFCE7', text: '#15803D', fw: '600', border: '#86EFAC' }; // verde — dentro do prazo
-  return   { bg: '#EFF6FF', text: '#2563EB', fw: '500', border: '#BFDBFE' }; // azul — sem prazo definido
+  if (cell.atrasados > 0) return { bg: '#FEE2E2', text: '#B91C1C', border: '#FECACA' };
+  if (cell.no_prazo  > 0) return { bg: '#DCFCE7', text: '#15803D', border: '#86EFAC' };
+  return                         { bg: '#EFF6FF', text: '#3B82F6', border: '#BFDBFE' };
 }
 
-function fmtDate(iso) {
-  if (!iso) return '';
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
+function fmtDate(val) {
+  if (!val) return '';
+  const d = new Date(val);
+  if (!isNaN(d)) return d.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+  return val;
 }
 
 function renderImplantacoes() {
   const container = document.getElementById('impl-content');
+  implCharts.forEach(c => c.destroy());
+  implCharts = [];
 
   if (!state.implantacoes.length) {
     unavailable(container, 'Dados de implantações indisponíveis. Verifique se a planilha Jira_Implantacoes está publicada.');
     return;
   }
 
-  // Agregar por município × vertical com status de prazo
+  // --- Agregação ---
   const munMap = {};
   state.implantacoes.forEach(r => {
-    const m          = (r.municipio || 'Não informado').trim();
-    const v          = (r.vertical  || 'Não informado').trim();
-    const total      = parseInt(r.total)      || 0;
-    const atrasados  = parseInt(r.atrasados)  || 0;
-    const no_prazo   = parseInt(r.no_prazo)   || 0;
-    const sem_prazo  = parseInt(r.sem_prazo)  || 0;
-    const praz_min   = r.prazo_minimo         || '';
+    const mu        = (r.municipio || 'Não informado').trim();
+    const v         = (r.vertical  || 'Não informado').trim();
+    const total     = parseInt(r.total)     || 0;
+    const atrasados = parseInt(r.atrasados) || 0;
+    const no_prazo  = parseInt(r.no_prazo)  || 0;
+    const sem_prazo = parseInt(r.sem_prazo) || 0;
+    const praz_min  = r.prazo_minimo || '';
 
-    if (!munMap[m]) munMap[m] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
-    munMap[m][v]          = { total, atrasados, no_prazo, sem_prazo, prazo_minimo: praz_min };
-    munMap[m].total      += total;
-    munMap[m].atrasados  += atrasados;
-    munMap[m].no_prazo   += no_prazo;
-    munMap[m].sem_prazo  += sem_prazo;
+    if (!munMap[mu]) munMap[mu] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
+    munMap[mu][v] = { total, atrasados, no_prazo, sem_prazo, prazo_minimo: praz_min };
+    munMap[mu].total     += total;
+    munMap[mu].atrasados += atrasados;
+    munMap[mu].no_prazo  += no_prazo;
+    munMap[mu].sem_prazo += sem_prazo;
   });
 
-  // Ordenar: municípios com mais atrasados primeiro, depois por total
   const municipios = Object.entries(munMap)
     .sort((a, b) => (b[1].atrasados - a[1].atrasados) || (b[1].total - a[1].total))
     .map(e => e[0]);
@@ -1572,100 +1572,116 @@ function renderImplantacoes() {
   const totalGeral    = municipios.reduce((s, m) => s + munMap[m].total,     0);
   const totalAtrasado = municipios.reduce((s, m) => s + munMap[m].atrasados, 0);
   const totalNoPrazo  = municipios.reduce((s, m) => s + munMap[m].no_prazo,  0);
-  const munAtrasados  = municipios.filter(m => munMap[m].atrasados > 0).length;
+  const totalSemPrazo = municipios.reduce((s, m) => s + munMap[m].sem_prazo, 0);
 
-  // Totais por vertical (rodapé)
+  const munComAtraso  = municipios.filter(m => munMap[m].atrasados > 0);
+  const munNoPrazo    = municipios.filter(m => munMap[m].atrasados === 0 && munMap[m].no_prazo > 0);
+  const munSemPrazo   = municipios.filter(m => munMap[m].atrasados === 0 && munMap[m].no_prazo === 0);
+
+  // Totais por vertical
   const footTotais = {};
   IMPL_VERTICAIS.forEach(v => {
-    footTotais[v] = { total: 0, atrasados: 0, no_prazo: 0 };
+    footTotais[v] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
     municipios.forEach(m => {
       const c = munMap[m][v];
-      if (c) { footTotais[v].total += c.total; footTotais[v].atrasados += c.atrasados; footTotais[v].no_prazo += c.no_prazo; }
+      if (c) { footTotais[v].total += c.total; footTotais[v].atrasados += c.atrasados; footTotais[v].no_prazo += c.no_prazo; footTotais[v].sem_prazo += c.sem_prazo; }
     });
   });
 
-  const thStyle = `padding:9px 10px;text-align:center;font-size:.74rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
-  const thFirst = `padding:9px 14px;text-align:left;font-size:.74rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+  // --- KPI Cards ---
+  const kpiHtml = `
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 18px;text-align:center;min-width:100px">
+        <div style="font-size:1.7rem;font-weight:700;color:#2563EB;line-height:1">${totalGeral}</div>
+        <div style="font-size:.7rem;font-weight:600;color:#3B82F6;text-transform:uppercase;margin-top:4px">Total Issues</div>
+      </div>
+      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 18px;text-align:center;min-width:100px">
+        <div style="font-size:1.7rem;font-weight:700;color:#DC2626;line-height:1">${totalAtrasado}</div>
+        <div style="font-size:.7rem;font-weight:600;color:#EF4444;text-transform:uppercase;margin-top:4px">Atrasadas</div>
+      </div>
+      <div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:10px 18px;text-align:center;min-width:100px">
+        <div style="font-size:1.7rem;font-weight:700;color:#15803D;line-height:1">${totalNoPrazo}</div>
+        <div style="font-size:.7rem;font-weight:600;color:#16A34A;text-transform:uppercase;margin-top:4px">No Prazo</div>
+      </div>
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 18px;text-align:center;min-width:100px">
+        <div style="font-size:1.7rem;font-weight:700;color:#64748B;line-height:1">${totalSemPrazo}</div>
+        <div style="font-size:.7rem;font-weight:600;color:#94A3B8;text-transform:uppercase;margin-top:4px">Sem Prazo</div>
+      </div>
+      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 18px;text-align:center;min-width:100px">
+        <div style="font-size:1.7rem;font-weight:700;color:#DC2626;line-height:1">${munComAtraso.length}</div>
+        <div style="font-size:.7rem;font-weight:600;color:#EF4444;text-transform:uppercase;margin-top:4px">Mun. c/ Atraso</div>
+      </div>
+      <div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:10px 18px;text-align:center;min-width:100px">
+        <div style="font-size:1.7rem;font-weight:700;color:#15803D;line-height:1">${municipios.length}</div>
+        <div style="font-size:.7rem;font-weight:600;color:#16A34A;text-transform:uppercase;margin-top:4px">Municípios</div>
+      </div>
+    </div>`;
+
+  // --- Gráficos ---
+  const chartsHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:14px;margin-bottom:18px">
+      <div style="background:#fff;border-radius:8px;border:1px solid #E2E8F0;padding:12px">
+        <div style="font-size:.76rem;font-weight:600;color:#1E3A5F;margin-bottom:6px;text-align:center">Municípios por Status de Prazo</div>
+        <div style="height:190px;position:relative"><canvas id="impl-chart-mun"></canvas></div>
+      </div>
+      <div style="background:#fff;border-radius:8px;border:1px solid #E2E8F0;padding:12px">
+        <div style="font-size:.76rem;font-weight:600;color:#1E3A5F;margin-bottom:6px;text-align:center">Implantações por Status de Prazo</div>
+        <div style="height:190px;position:relative"><canvas id="impl-chart-issues"></canvas></div>
+      </div>
+      <div style="background:#fff;border-radius:8px;border:1px solid #E2E8F0;padding:12px">
+        <div style="font-size:.76rem;font-weight:600;color:#1E3A5F;margin-bottom:6px;text-align:center">Implantações por Vertical e Status</div>
+        <div style="height:190px;position:relative"><canvas id="impl-chart-vert"></canvas></div>
+      </div>
+    </div>`;
+
+  // --- Tabela Pivot ---
+  const thStyle = `padding:8px 8px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+  const thFirst = `padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
 
   const headerCells = IMPL_VERTICAIS.map(v =>
-    `<th style="${thStyle}" title="${v}">${v.length > 10 ? v.slice(0,9)+'…' : v}</th>`).join('');
+    `<th style="${thStyle}" title="${v}">${v.length > 9 ? v.slice(0,8)+'…' : v}</th>`).join('');
 
   const bodyRows = municipios.map((m, ri) => {
-    const bg   = ri % 2 === 0 ? '#FFFFFF' : '#F7FAFC';
-    const mun  = munMap[m];
-    const cellBase = `padding:6px 10px;text-align:center;font-size:.82rem;border-right:1px solid #EDF2F7`;
+    const bg  = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+    const mun = munMap[m];
+    const cb  = `padding:5px 8px;text-align:center;font-size:.8rem;border-right:1px solid #EDF2F7`;
 
     const cells = IMPL_VERTICAIS.map(v => {
       const cell = mun[v];
-      if (!cell || cell.total === 0) return `<td style="${cellBase};color:#CBD5E0">—</td>`;
+      if (!cell || cell.total === 0) return `<td style="${cb};color:#CBD5E0">—</td>`;
       const s = implCellStyle(cell);
-      const tip = [
-        cell.atrasados > 0 ? `⚠ Atrasados: ${cell.atrasados}${cell.prazo_minimo ? ' (desde '+fmtDate(cell.prazo_minimo)+')' : ''}` : '',
-        cell.no_prazo  > 0 ? `✓ No prazo: ${cell.no_prazo}` : '',
-        cell.sem_prazo > 0 ? `? Sem prazo: ${cell.sem_prazo}` : '',
-      ].filter(Boolean).join(' | ');
-      const icon = cell.atrasados > 0 ? ' ⚠' : '';
-      return `<td style="${cellBase};background:${s.bg};color:${s.text};font-weight:${s.fw};border:1px solid ${s.border}" title="${tip}">${cell.total}${icon}</td>`;
+      const tipParts = [];
+      if (cell.atrasados > 0) tipParts.push(`Atrasadas: ${cell.atrasados}${cell.prazo_minimo ? ' (prazo: ' + fmtDate(cell.prazo_minimo) + ')' : ''}`);
+      if (cell.no_prazo  > 0) tipParts.push(`No prazo: ${cell.no_prazo}`);
+      if (cell.sem_prazo > 0) tipParts.push(`Sem prazo: ${cell.sem_prazo}`);
+      return `<td style="${cb};background:${s.bg};color:${s.text};font-weight:600;border:1px solid ${s.border}" title="${tipParts.join(' · ')}">${cell.total}</td>`;
     }).join('');
 
-    // Indicador de prazo na coluna Total
-    const totalStyle = mun.atrasados > 0
-      ? `color:#DC2626;font-weight:700`
-      : mun.no_prazo > 0
-        ? `color:#15803D;font-weight:700`
-        : `color:#1E3A5F;font-weight:700`;
-    const totalIcon = mun.atrasados > 0 ? ' ⚠' : '';
-
+    const totalCor = mun.atrasados > 0 ? '#B91C1C' : mun.no_prazo > 0 ? '#15803D' : '#475569';
     return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
-      <td style="padding:7px 14px;font-size:.82rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
+      <td style="padding:6px 12px;font-size:.8rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
       ${cells}
-      <td style="padding:7px 10px;text-align:center;font-size:.82rem;border-left:1px solid #CBD5E0;${totalStyle}">${mun.total}${totalIcon}</td>
+      <td style="padding:6px 8px;text-align:center;font-size:.8rem;font-weight:700;border-left:1px solid #CBD5E0;color:${totalCor}">${mun.total}</td>
     </tr>`;
   }).join('');
 
-  // Linha de totais no rodapé
   const footCells = IMPL_VERTICAIS.map(v => {
     const f = footTotais[v];
-    if (!f.total) return `<td style="padding:7px 10px;text-align:center;font-size:.8rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
-    const cor = f.atrasados > 0 ? '#DC2626' : f.no_prazo > 0 ? '#15803D' : '#2563EB';
-    return `<td style="padding:7px 10px;text-align:center;font-size:.8rem;font-weight:700;color:${cor};background:#EDF2F7;border-right:1px solid #CBD5E0">${f.total}</td>`;
+    if (!f.total) return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
+    const cor = f.atrasados > 0 ? '#B91C1C' : f.no_prazo > 0 ? '#15803D' : '#3B82F6';
+    return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:${cor};background:#EDF2F7;border-right:1px solid #CBD5E0">${f.total}</td>`;
   }).join('');
 
-  // KPI cards
-  const kpiHtml = `
-    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:1.8rem;font-weight:700;color:#2563EB;line-height:1">${totalGeral}</div>
-        <div style="font-size:.72rem;font-weight:600;color:#3B82F6;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Total Issues</div>
-      </div>
-      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:1.8rem;font-weight:700;color:#DC2626;line-height:1">${totalAtrasado}</div>
-        <div style="font-size:.72rem;font-weight:600;color:#EF4444;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Atrasadas</div>
-      </div>
-      <div style="background:#DCFCE7;border:1px solid #86EFAC;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:1.8rem;font-weight:700;color:#15803D;line-height:1">${totalNoPrazo}</div>
-        <div style="font-size:.72rem;font-weight:600;color:#16A34A;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">No Prazo</div>
-      </div>
-      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:1.8rem;font-weight:700;color:#DC2626;line-height:1">${munAtrasados}</div>
-        <div style="font-size:.72rem;font-weight:600;color:#EF4444;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Municípios c/ atraso</div>
-      </div>
-      <div style="background:#F0FFF4;border:1px solid #9AE6B4;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:1.8rem;font-weight:700;color:#276749;line-height:1">${municipios.length}</div>
-        <div style="font-size:.72rem;font-weight:600;color:#38A169;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Municípios</div>
-      </div>
-    </div>`;
-
   const legendaHtml = `
-    <div style="display:flex;gap:20px;margin-top:14px;font-size:.75rem;color:var(--text-muted);flex-wrap:wrap;align-items:center">
+    <div style="display:flex;gap:16px;margin-top:12px;font-size:.73rem;color:var(--text-muted);flex-wrap:wrap;align-items:center">
       <strong style="color:var(--text)">Legenda:</strong>
-      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#FEE2E2;border:1px solid #FCA5A5"></span> Atrasado ⚠</span>
-      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#DCFCE7;border:1px solid #86EFAC"></span> Dentro do prazo</span>
-      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span> Sem prazo definido</span>
-      <span style="color:var(--text-muted);font-style:italic">Passe o mouse sobre a célula para ver detalhes</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEE2E2;border:1px solid #FECACA"></span> Com atraso</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#DCFCE7;border:1px solid #86EFAC"></span> Dentro do prazo</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span> Sem prazo definido</span>
+      <span style="color:#94A3B8;font-style:italic">Passe o mouse sobre a célula para ver detalhes</span>
     </div>`;
 
-  container.innerHTML = kpiHtml + `
+  container.innerHTML = kpiHtml + chartsHtml + `
     <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
       <table style="width:100%;border-collapse:collapse;font-family:inherit">
         <thead>
@@ -1678,14 +1694,80 @@ function renderImplantacoes() {
         <tbody>${bodyRows}</tbody>
         <tfoot>
           <tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
-            <td style="padding:7px 14px;font-size:.8rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
+            <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
             ${footCells}
-            <td style="padding:7px 10px;text-align:center;font-size:.8rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
+            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
           </tr>
         </tfoot>
       </table>
     </div>
     ${legendaHtml}`;
+
+  // --- Inicializar gráficos (após innerHTML) ---
+  const COR_ATRASO = '#EF4444';
+  const COR_PRAZO  = '#22C55E';
+  const COR_SEM    = '#93C5FD';
+  const BORDA      = { borderWidth: 2, borderColor: '#fff' };
+
+  // Gráfico 1: Municípios por status de prazo
+  implCharts.push(new Chart(document.getElementById('impl-chart-mun'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Com atraso', 'No prazo', 'Sem prazo'],
+      datasets: [{ data: [munComAtraso.length, munNoPrazo.length, munSemPrazo.length],
+        backgroundColor: [COR_ATRASO, COR_PRAZO, COR_SEM], ...BORDA }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} municípios` } }
+      }
+    }
+  }));
+
+  // Gráfico 2: Issues por status de prazo
+  implCharts.push(new Chart(document.getElementById('impl-chart-issues'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Atrasadas', 'No prazo', 'Sem prazo'],
+      datasets: [{ data: [totalAtrasado, totalNoPrazo, totalSemPrazo],
+        backgroundColor: [COR_ATRASO, COR_PRAZO, COR_SEM], ...BORDA }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} implantações` } }
+      }
+    }
+  }));
+
+  // Gráfico 3: Por vertical — barra horizontal empilhada
+  const vertLabels = IMPL_VERTICAIS.filter(v => footTotais[v].total > 0);
+  implCharts.push(new Chart(document.getElementById('impl-chart-vert'), {
+    type: 'bar',
+    data: {
+      labels: vertLabels,
+      datasets: [
+        { label: 'Atrasadas', data: vertLabels.map(v => footTotais[v].atrasados), backgroundColor: COR_ATRASO },
+        { label: 'No prazo',  data: vertLabels.map(v => footTotais[v].no_prazo),  backgroundColor: COR_PRAZO  },
+        { label: 'Sem prazo', data: vertLabels.map(v => footTotais[v].sem_prazo), backgroundColor: COR_SEM    },
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true, grid: { color: '#F1F5F9' }, ticks: { font: { size: 10 } } },
+        y: { stacked: true, grid: { display: false },   ticks: { font: { size: 10 } } }
+      },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } },
+        tooltip: { mode: 'index', intersect: false }
+      }
+    }
+  }));
 }
 
 // ============================================================
