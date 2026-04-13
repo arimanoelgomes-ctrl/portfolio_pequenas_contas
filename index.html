@@ -460,7 +460,7 @@
       <div class="kpi-value" id="kpi-nps">—</div>
       <div class="kpi-sub" id="kpi-nps-sub">Carregando…</div>
     </div>
-    <div class="kpi-card purple" style="cursor:pointer" onclick="switchTab(6)" title="Ver detalhe das implantações">
+    <div class="kpi-card purple" style="cursor:pointer" onclick="switchTab(5)" title="Ver detalhe das implantações">
       <div class="kpi-label">Implantações Pendentes</div>
       <div class="kpi-value" id="kpi-impl" style="color:#7C3AED">—</div>
       <div class="kpi-sub" id="kpi-impl-sub">Carregando…</div>
@@ -472,10 +472,9 @@
     <button class="tab-btn active" onclick="switchTab(0)">📊 Chamados</button>
     <button class="tab-btn" onclick="switchTab(1)">🏛️ CND</button>
     <button class="tab-btn" onclick="switchTab(2)">⚠️ Risco de Exclusão</button>
-    <button class="tab-btn" onclick="switchTab(3)">⭐ NPS Geral</button>
-    <button class="tab-btn" onclick="switchTab(4)">📈 NPS por Cliente</button>
-    <button class="tab-btn" onclick="switchTab(5)">👥 Colaboradores</button>
-    <button class="tab-btn" onclick="switchTab(6)">🔧 Implantações</button>
+    <button class="tab-btn" onclick="switchTab(3)">⭐ NPS</button>
+    <button class="tab-btn" onclick="switchTab(4)">👥 Colaboradores</button>
+    <button class="tab-btn" onclick="switchTab(5)">🔧 Implantações</button>
   </div>
 
   <!-- Chart Panel -->
@@ -524,7 +523,7 @@
       <div id="risk-container" style="margin-top:16px"></div>
     </div>
 
-    <!-- View 5: NPS Geral -->
+    <!-- View 5: NPS (Geral + Por Cliente) -->
     <div class="view" id="view-4">
       <div class="view-title">NPS do Portfólio</div>
       <div class="view-subtitle">Net Promoter Score consolidado • Fonte: Google Sheets</div>
@@ -555,13 +554,11 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- View 6: NPS por Cliente -->
-    <div class="view" id="view-5">
-      <div class="view-title">NPS por Cliente</div>
-      <div class="view-subtitle">NPS por município (% Promotores − % Detratores) • Fonte: Google Sheets</div>
-      <div class="chart-wrap tall"><canvas id="chart-5"></canvas></div>
+      <div style="margin-top:36px;padding-top:28px;border-top:2px solid #E2E8F0">
+        <div class="view-title" style="font-size:1.1rem;margin-bottom:4px">NPS por Cliente</div>
+        <div class="view-subtitle">NPS por município (% Promotores − % Detratores) • Fonte: Google Sheets</div>
+        <div class="chart-wrap tall"><canvas id="chart-5"></canvas></div>
+      </div>
     </div>
 
     <!-- View 7: Colaboradores -->
@@ -833,10 +830,9 @@ function renderView(idx) {
     case 0: renderChamadosPorCliente(); renderChamadosPorVertical(); break;
     case 1: renderCND(); break;
     case 2: renderRisco(); break;
-    case 3: renderNPSGeral(); break;
-    case 4: renderNPSPorCliente(); break;
-    case 5: renderColaboradores(); break;
-    case 6: renderImplantacoes(); break;
+    case 3: renderNPSGeral(); renderNPSPorCliente(); break;
+    case 4: renderColaboradores(); break;
+    case 5: renderImplantacoes(); break;
   }
 }
 
