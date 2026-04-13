@@ -84,6 +84,7 @@ const JQL_IMPLANTACOES = `(labels not in (implantaçãoRecusada) OR labels is EM
 
 const FIELD_MUNICIPIO = 'customfield_10331'; // Município (string)
 const FIELD_VERTICAL  = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
+const FIELD_PRAZO     = 'customfield_25801'; // Prazo contratual da implantação (date "YYYY-MM-DD")
 const SHEET_TAB_NAME  = 'Jira_Chamados';
 const IMPL_TAB_NAME   = 'Jira_Implantacoes';
 const CND_TAB_NAME    = 'CND_Municipios';
@@ -320,7 +321,7 @@ function fetchAndStoreImplantacoes() {
 
   const sessionCookie = getJiraSession(baseUrl, email, password);
   const headers = { 'Cookie': sessionCookie, 'Accept': 'application/json', 'Content-Type': 'application/json' };
-  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL];
+  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, FIELD_PRAZO];
 
   const allIssues = [];
   let startAt = 0;
@@ -348,20 +349,37 @@ function fetchAndStoreImplantacoes() {
 
   Logger.log(`  Implantações coletadas: ${allIssues.length}`);
 
-  // Agregar por Município × Vertical
-  const map = {};
-  const ts  = new Date().toISOString();
+  // Agregar por Município × Vertical — inclui status de prazo
+  const map  = {};
+  const ts   = new Date().toISOString();
+  const hoje = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+
   allIssues.forEach(issue => {
     const municipio = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
     const vObj      = issue.fields[FIELD_VERTICAL];
     const vertical  = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
+    const prazo     = issue.fields[FIELD_PRAZO] || null; // "YYYY-MM-DD" ou null
     const key       = `${municipio}||${vertical}`;
-    map[key]        = (map[key] || 0) + 1;
+
+    if (!map[key]) map[key] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0, prazo_minimo: null };
+    map[key].total++;
+
+    if (!prazo) {
+      map[key].sem_prazo++;
+    } else if (prazo < hoje) {
+      map[key].atrasados++;
+      // Guarda o prazo vencido mais antigo (mais crítico)
+      if (!map[key].prazo_minimo || prazo < map[key].prazo_minimo) {
+        map[key].prazo_minimo = prazo;
+      }
+    } else {
+      map[key].no_prazo++;
+    }
   });
 
-  const rows = Object.entries(map).map(([key, count]) => {
+  const rows = Object.entries(map).map(([key, d]) => {
     const [municipio, vertical] = key.split('||');
-    return [municipio, vertical, count, ts];
+    return [municipio, vertical, d.total, d.atrasados, d.no_prazo, d.sem_prazo, d.prazo_minimo || '', ts];
   }).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
 
   // Gravar na aba Jira_Implantacoes
@@ -370,15 +388,20 @@ function fetchAndStoreImplantacoes() {
   let tab       = ss.getSheetByName(IMPL_TAB_NAME);
   if (!tab) { tab = ss.insertSheet(IMPL_TAB_NAME); Logger.log(`  Aba "${IMPL_TAB_NAME}" criada.`); }
 
-  tab.getRange(1, 1, 1, 4).setValues([['municipio','vertical','total','atualizado_em']]);
+  const header = [['municipio','vertical','total','atrasados','no_prazo','sem_prazo','prazo_minimo','atualizado_em']];
+  tab.getRange(1, 1, 1, 8).setValues(header);
   const last = tab.getLastRow();
-  if (last > 1) tab.getRange(2, 1, last - 1, 4).clearContent();
-  if (rows.length > 0) tab.getRange(2, 1, rows.length, 4).setValues(rows);
+  if (last > 1) tab.getRange(2, 1, last - 1, 8).clearContent();
+  if (rows.length > 0) tab.getRange(2, 1, rows.length, 8).setValues(rows);
 
-  const h = tab.getRange(1, 1, 1, 4);
+  const h = tab.getRange(1, 1, 1, 8);
   h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
   tab.setFrozenRows(1);
-  Logger.log(`  "${IMPL_TAB_NAME}": ${rows.length} linhas gravadas (${allIssues.length} issues, ${Object.keys(map).length} combinações mun×vertical).`);
+
+  const totalAtrasados = Object.values(map).reduce((s, d) => s + d.atrasados, 0);
+  const totalNoPrazo   = Object.values(map).reduce((s, d) => s + d.no_prazo, 0);
+  const totalSemPrazo  = Object.values(map).reduce((s, d) => s + d.sem_prazo, 0);
+  Logger.log(`  "${IMPL_TAB_NAME}": ${rows.length} linhas (${allIssues.length} issues — ${totalAtrasados} atrasadas, ${totalNoPrazo} no prazo, ${totalSemPrazo} sem prazo).`);
 }
 
 // ────────────────────────────────────────────────────────────

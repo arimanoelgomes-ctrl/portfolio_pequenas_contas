@@ -1521,12 +1521,20 @@ function renderColaboradores() {
 // ============================================================
 const IMPL_VERTICAIS = ['Arrecadação','Atendimento','Contratos','Contábil','Educação','ISS','Parceiros','Pessoal','Plataforma','Saúde'];
 
-// Cor de fundo da célula pelo volume de issues (heatmap suave)
-function implCellColor(val) {
-  if (!val) return null;
-  if (val >= 5) return { bg: '#EBF4FF', text: '#1A365D', fw: '700' };
-  if (val >= 3) return { bg: '#EBF8FF', text: '#2B6CB0', fw: '600' };
-  return            { bg: '#F0FFF4', text: '#276749', fw: '500' };
+// Cor da célula baseada no status de prazo
+function implCellStyle(cell) {
+  if (!cell || cell.total === 0) return null;
+  if (cell.atrasados > 0)
+    return { bg: '#FEE2E2', text: '#DC2626', fw: '700', border: '#FCA5A5' }; // vermelho — atrasado
+  if (cell.no_prazo > 0)
+    return { bg: '#DCFCE7', text: '#15803D', fw: '600', border: '#86EFAC' }; // verde — dentro do prazo
+  return   { bg: '#EFF6FF', text: '#2563EB', fw: '500', border: '#BFDBFE' }; // azul — sem prazo definido
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
 }
 
 function renderImplantacoes() {
@@ -1537,28 +1545,43 @@ function renderImplantacoes() {
     return;
   }
 
-  // Agregar por município × vertical
+  // Agregar por município × vertical com status de prazo
   const munMap = {};
   state.implantacoes.forEach(r => {
-    const m = (r.municipio || 'Não informado').trim();
-    const v = (r.vertical   || 'Não informado').trim();
-    const n = parseInt(r.total) || parseInt(r.total_chamados) || 0;
-    if (!munMap[m]) munMap[m] = { total: 0 };
-    munMap[m][v] = (munMap[m][v] || 0) + n;
-    munMap[m].total += n;
+    const m          = (r.municipio || 'Não informado').trim();
+    const v          = (r.vertical  || 'Não informado').trim();
+    const total      = parseInt(r.total)      || 0;
+    const atrasados  = parseInt(r.atrasados)  || 0;
+    const no_prazo   = parseInt(r.no_prazo)   || 0;
+    const sem_prazo  = parseInt(r.sem_prazo)  || 0;
+    const praz_min   = r.prazo_minimo         || '';
+
+    if (!munMap[m]) munMap[m] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
+    munMap[m][v]          = { total, atrasados, no_prazo, sem_prazo, prazo_minimo: praz_min };
+    munMap[m].total      += total;
+    munMap[m].atrasados  += atrasados;
+    munMap[m].no_prazo   += no_prazo;
+    munMap[m].sem_prazo  += sem_prazo;
   });
 
-  // Municipalities sorted by total desc
+  // Ordenar: municípios com mais atrasados primeiro, depois por total
   const municipios = Object.entries(munMap)
-    .sort((a, b) => b[1].total - a[1].total)
+    .sort((a, b) => (b[1].atrasados - a[1].atrasados) || (b[1].total - a[1].total))
     .map(e => e[0]);
 
-  const totalGeral = municipios.reduce((s, m) => s + munMap[m].total, 0);
+  const totalGeral    = municipios.reduce((s, m) => s + munMap[m].total,     0);
+  const totalAtrasado = municipios.reduce((s, m) => s + munMap[m].atrasados, 0);
+  const totalNoPrazo  = municipios.reduce((s, m) => s + munMap[m].no_prazo,  0);
+  const munAtrasados  = municipios.filter(m => munMap[m].atrasados > 0).length;
 
   // Totais por vertical (rodapé)
-  const totalPorVertical = {};
+  const footTotais = {};
   IMPL_VERTICAIS.forEach(v => {
-    totalPorVertical[v] = municipios.reduce((s, m) => s + (munMap[m][v] || 0), 0);
+    footTotais[v] = { total: 0, atrasados: 0, no_prazo: 0 };
+    municipios.forEach(m => {
+      const c = munMap[m][v];
+      if (c) { footTotais[v].total += c.total; footTotais[v].atrasados += c.atrasados; footTotais[v].no_prazo += c.no_prazo; }
+    });
   });
 
   const thStyle = `padding:9px 10px;text-align:center;font-size:.74rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
@@ -1568,51 +1591,78 @@ function renderImplantacoes() {
     `<th style="${thStyle}" title="${v}">${v.length > 10 ? v.slice(0,9)+'…' : v}</th>`).join('');
 
   const bodyRows = municipios.map((m, ri) => {
-    const bg = ri % 2 === 0 ? '#FFFFFF' : '#F7FAFC';
+    const bg   = ri % 2 === 0 ? '#FFFFFF' : '#F7FAFC';
+    const mun  = munMap[m];
+    const cellBase = `padding:6px 10px;text-align:center;font-size:.82rem;border-right:1px solid #EDF2F7`;
+
     const cells = IMPL_VERTICAIS.map(v => {
-      const val = munMap[m][v] || 0;
-      const cellBase = `padding:7px 10px;text-align:center;font-size:.82rem;border-right:1px solid #EDF2F7`;
-      if (!val) return `<td style="${cellBase};color:#CBD5E0">—</td>`;
-      const c = implCellColor(val);
-      return `<td style="${cellBase};background:${c.bg};color:${c.text};font-weight:${c.fw}">${val}</td>`;
+      const cell = mun[v];
+      if (!cell || cell.total === 0) return `<td style="${cellBase};color:#CBD5E0">—</td>`;
+      const s = implCellStyle(cell);
+      const tip = [
+        cell.atrasados > 0 ? `⚠ Atrasados: ${cell.atrasados}${cell.prazo_minimo ? ' (desde '+fmtDate(cell.prazo_minimo)+')' : ''}` : '',
+        cell.no_prazo  > 0 ? `✓ No prazo: ${cell.no_prazo}` : '',
+        cell.sem_prazo > 0 ? `? Sem prazo: ${cell.sem_prazo}` : '',
+      ].filter(Boolean).join(' | ');
+      const icon = cell.atrasados > 0 ? ' ⚠' : '';
+      return `<td style="${cellBase};background:${s.bg};color:${s.text};font-weight:${s.fw};border:1px solid ${s.border}" title="${tip}">${cell.total}${icon}</td>`;
     }).join('');
+
+    // Indicador de prazo na coluna Total
+    const totalStyle = mun.atrasados > 0
+      ? `color:#DC2626;font-weight:700`
+      : mun.no_prazo > 0
+        ? `color:#15803D;font-weight:700`
+        : `color:#1E3A5F;font-weight:700`;
+    const totalIcon = mun.atrasados > 0 ? ' ⚠' : '';
 
     return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
       <td style="padding:7px 14px;font-size:.82rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
       ${cells}
-      <td style="padding:7px 10px;text-align:center;font-size:.82rem;font-weight:700;color:#1E3A5F;border-left:1px solid #CBD5E0">${munMap[m].total}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:.82rem;border-left:1px solid #CBD5E0;${totalStyle}">${mun.total}${totalIcon}</td>
     </tr>`;
   }).join('');
 
-  // Linha de totais
+  // Linha de totais no rodapé
   const footCells = IMPL_VERTICAIS.map(v => {
-    const val = totalPorVertical[v];
-    return `<td style="padding:7px 10px;text-align:center;font-size:.8rem;font-weight:700;color:#1E3A5F;border-right:1px solid #CBD5E0;background:#EDF2F7">${val || '—'}</td>`;
+    const f = footTotais[v];
+    if (!f.total) return `<td style="padding:7px 10px;text-align:center;font-size:.8rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
+    const cor = f.atrasados > 0 ? '#DC2626' : f.no_prazo > 0 ? '#15803D' : '#2563EB';
+    return `<td style="padding:7px 10px;text-align:center;font-size:.8rem;font-weight:700;color:${cor};background:#EDF2F7;border-right:1px solid #CBD5E0">${f.total}</td>`;
   }).join('');
 
-  // KPI summary
+  // KPI cards
   const kpiHtml = `
-    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div style="background:#EBF4FF;border:1px solid #BEE3F8;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:1.8rem;font-weight:700;color:#2B6CB0;line-height:1">${totalGeral}</div>
-        <div style="font-size:.72rem;font-weight:600;color:#4299E1;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Total Issues</div>
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:1.8rem;font-weight:700;color:#2563EB;line-height:1">${totalGeral}</div>
+        <div style="font-size:.72rem;font-weight:600;color:#3B82F6;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Total Issues</div>
+      </div>
+      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:1.8rem;font-weight:700;color:#DC2626;line-height:1">${totalAtrasado}</div>
+        <div style="font-size:.72rem;font-weight:600;color:#EF4444;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Atrasadas</div>
+      </div>
+      <div style="background:#DCFCE7;border:1px solid #86EFAC;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:1.8rem;font-weight:700;color:#15803D;line-height:1">${totalNoPrazo}</div>
+        <div style="font-size:.72rem;font-weight:600;color:#16A34A;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">No Prazo</div>
+      </div>
+      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:1.8rem;font-weight:700;color:#DC2626;line-height:1">${munAtrasados}</div>
+        <div style="font-size:.72rem;font-weight:600;color:#EF4444;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Municípios c/ atraso</div>
       </div>
       <div style="background:#F0FFF4;border:1px solid #9AE6B4;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
         <div style="font-size:1.8rem;font-weight:700;color:#276749;line-height:1">${municipios.length}</div>
         <div style="font-size:.72rem;font-weight:600;color:#38A169;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Municípios</div>
       </div>
-      <div style="background:#FFFAF0;border:1px solid #FBD38D;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:1.8rem;font-weight:700;color:#C05621;line-height:1">${IMPL_VERTICAIS.filter(v => totalPorVertical[v] > 0).length}</div>
-        <div style="font-size:.72rem;font-weight:600;color:#DD6B20;text-transform:uppercase;letter-spacing:.04em;margin-top:4px">Verticais ativas</div>
-      </div>
     </div>`;
 
   const legendaHtml = `
-    <div style="display:flex;gap:16px;margin-top:12px;font-size:.75rem;color:var(--text-muted);flex-wrap:wrap">
-      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#F0FFF4;border:1px solid #9AE6B4"></span> 1–2</span>
-      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#EBF8FF;border:1px solid #90CDF4"></span> 3–4</span>
-      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#EBF4FF;border:1px solid #BEE3F8"></span> 5+</span>
-      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#FFFFFF;border:1px solid #E2E8F0"></span> —</span>
+    <div style="display:flex;gap:20px;margin-top:14px;font-size:.75rem;color:var(--text-muted);flex-wrap:wrap;align-items:center">
+      <strong style="color:var(--text)">Legenda:</strong>
+      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#FEE2E2;border:1px solid #FCA5A5"></span> Atrasado ⚠</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#DCFCE7;border:1px solid #86EFAC"></span> Dentro do prazo</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span> Sem prazo definido</span>
+      <span style="color:var(--text-muted);font-style:italic">Passe o mouse sobre a célula para ver detalhes</span>
     </div>`;
 
   container.innerHTML = kpiHtml + `
@@ -1630,7 +1680,7 @@ function renderImplantacoes() {
           <tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
             <td style="padding:7px 14px;font-size:.8rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
             ${footCells}
-            <td style="padding:7px 10px;text-align:center;font-size:.8rem;font-weight:700;color:#1E3A5F;border-left:1px solid #CBD5E0;background:#E2E8F0">${totalGeral}</td>
+            <td style="padding:7px 10px;text-align:center;font-size:.8rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
           </tr>
         </tfoot>
       </table>
