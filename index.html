@@ -460,7 +460,7 @@
       <div class="kpi-value" id="kpi-nps">—</div>
       <div class="kpi-sub" id="kpi-nps-sub">Carregando…</div>
     </div>
-    <div class="kpi-card purple" style="cursor:pointer" onclick="switchTab(5)" title="Ver detalhe das implantações">
+    <div class="kpi-card purple" style="cursor:pointer" onclick="switchTab(1)" title="Ver detalhe das implantações">
       <div class="kpi-label">Implantações Pendentes</div>
       <div class="kpi-value" id="kpi-impl" style="color:#7C3AED">—</div>
       <div class="kpi-sub" id="kpi-impl-sub">Carregando…</div>
@@ -470,11 +470,11 @@
   <!-- Tab Navigation -->
   <div class="tab-nav">
     <button class="tab-btn active" onclick="switchTab(0)">📊 Chamados</button>
-    <button class="tab-btn" onclick="switchTab(1)">🏛️ CND</button>
-    <button class="tab-btn" onclick="switchTab(2)">⚠️ Risco de Exclusão</button>
+    <button class="tab-btn" onclick="switchTab(1)">🔧 Implantações</button>
+    <button class="tab-btn" onclick="switchTab(2)">⚠️ Risco de Churn</button>
     <button class="tab-btn" onclick="switchTab(3)">⭐ NPS</button>
-    <button class="tab-btn" onclick="switchTab(4)">👥 Colaboradores</button>
-    <button class="tab-btn" onclick="switchTab(5)">🔧 Implantações</button>
+    <button class="tab-btn" onclick="switchTab(4)">🏛️ CND</button>
+    <button class="tab-btn" onclick="switchTab(5)">👥 Colaboradores</button>
   </div>
 
   <!-- Chart Panel -->
@@ -492,38 +492,21 @@
       </div>
     </div>
 
-    <!-- View 3: CND -->
-    <div class="view" id="view-2">
-      <div class="view-title">Situação CND do Portfólio</div>
-      <div class="view-subtitle">Clientes com e sem Certidão Negativa de Débito por período • Fonte: Sistema CND</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start;margin-top:8px">
-        <div>
-          <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 1</div>
-          <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">06/06 – 06/10/2025</div>
-          <div class="chart-wrap short"><canvas id="chart-cnd-p1"></canvas></div>
-        </div>
-        <div>
-          <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 2</div>
-          <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">06/10/2025 – 06/02/2026</div>
-          <div class="chart-wrap short"><canvas id="chart-cnd-p2"></canvas></div>
-        </div>
-        <div>
-          <div style="text-align:center;font-size:.78rem;font-weight:700;color:var(--accent);margin-bottom:2px">Período 3 — Atual ★</div>
-          <div style="text-align:center;font-size:.72rem;color:var(--accent);margin-bottom:6px">06/02 – 06/06/2026</div>
-          <div class="chart-wrap short"><canvas id="chart-2"></canvas></div>
-        </div>
-      </div>
-      <div id="cnd-table" style="margin-top:24px"></div>
+    <!-- View: Implantações (pos 1) -->
+    <div class="view" id="view-7">
+      <div class="view-title">Implantações Pendentes e Em Andamento</div>
+      <div class="view-subtitle">Issues de implantação por município e vertical • Fonte: Jira</div>
+      <div id="impl-content" style="margin-top:8px"></div>
     </div>
 
-    <!-- View 4: Risco de Exclusão -->
+    <!-- View: Risco de Churn (pos 2) -->
     <div class="view" id="view-3">
-      <div class="view-title">Clientes com Risco de Exclusão</div>
-      <div class="view-subtitle">Municípios com risco de cancelamento de contrato • Fonte: Google Sheets</div>
+      <div class="view-title">Clientes com Risco de Churn</div>
+      <div class="view-subtitle">Municípios com risco de churn (cancelamento de contrato) • Fonte: Google Sheets</div>
       <div id="risk-container" style="margin-top:16px"></div>
     </div>
 
-    <!-- View 5: NPS (Geral + Por Cliente) -->
+    <!-- View: NPS (Geral + Por Cliente) (pos 3) -->
     <div class="view" id="view-4">
       <div class="view-title">NPS do Portfólio</div>
       <div class="view-subtitle">Net Promoter Score consolidado • Fonte: Google Sheets</div>
@@ -561,18 +544,35 @@
       </div>
     </div>
 
-    <!-- View 7: Colaboradores -->
+    <!-- View: CND (pos 4) -->
+    <div class="view" id="view-2">
+      <div class="view-title">Situação CND do Portfólio</div>
+      <div class="view-subtitle">Clientes com e sem Certidão Negativa de Débito por período • Fonte: Sistema CND</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start;margin-top:8px">
+        <div>
+          <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 1</div>
+          <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">06/06 – 06/10/2025</div>
+          <div class="chart-wrap short"><canvas id="chart-cnd-p1"></canvas></div>
+        </div>
+        <div>
+          <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 2</div>
+          <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">06/10/2025 – 06/02/2026</div>
+          <div class="chart-wrap short"><canvas id="chart-cnd-p2"></canvas></div>
+        </div>
+        <div>
+          <div style="text-align:center;font-size:.78rem;font-weight:700;color:var(--accent);margin-bottom:2px">Período 3 — Atual ★</div>
+          <div style="text-align:center;font-size:.72rem;color:var(--accent);margin-bottom:6px">06/02 – 06/06/2026</div>
+          <div class="chart-wrap short"><canvas id="chart-2"></canvas></div>
+        </div>
+      </div>
+      <div id="cnd-table" style="margin-top:24px"></div>
+    </div>
+
+    <!-- View: Colaboradores (pos 5) -->
     <div class="view" id="view-6">
       <div class="view-title">Colaboradores</div>
       <div class="view-subtitle">Distribuição e listagem da equipe por vaga • Fonte: Google Sheets</div>
       <div id="colab-container" style="margin-top:8px"></div>
-    </div>
-
-    <!-- View 8: Implantações -->
-    <div class="view" id="view-7">
-      <div class="view-title">Implantações Pendentes e Em Andamento</div>
-      <div class="view-subtitle">Issues de implantação por município e vertical • Fonte: Jira</div>
-      <div id="impl-content" style="margin-top:8px"></div>
     </div>
 
   </div>
@@ -828,11 +828,11 @@ function renderActiveView() { renderView(activeTab); }
 function renderView(idx) {
   switch(idx) {
     case 0: renderChamadosPorCliente(); renderChamadosPorVertical(); break;
-    case 1: renderCND(); break;
+    case 1: renderImplantacoes(); break;
     case 2: renderRisco(); break;
     case 3: renderNPSGeral(); renderNPSPorCliente(); break;
-    case 4: renderColaboradores(); break;
-    case 5: renderImplantacoes(); break;
+    case 4: renderCND(); break;
+    case 5: renderColaboradores(); break;
   }
 }
 
@@ -1162,7 +1162,7 @@ function renderCND() {
 }
 
 // ============================================================
-// VIEW 4 — Risco de Exclusão
+// VIEW 4 — Risco de Churn
 // ============================================================
 function renderRisco() {
   const container = document.getElementById('risk-container');
