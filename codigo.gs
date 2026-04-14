@@ -27,14 +27,23 @@ const SHEET_ID_DEFAULT = '1MKsApbL7IPf5jAsAO9N03AxAcC3ptzYbrgNQrOr_R4s';
 // WEB APP — Serve dados da planilha como JSON/JSONP
 // Dashboard chama: ?sheet=Jira_Chamados&callback=fn
 // ────────────────────────────────────────────────────────────
+// Abas que possuem versão histórica (_Hist)
+const HIST_ENABLED = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios'];
+
 function doGet(e) {
   const callback  = (e && e.parameter && e.parameter.callback) ? e.parameter.callback : null;
   const sheetName = (e && e.parameter && e.parameter.sheet)    ? e.parameter.sheet    : 'Jira_Chamados';
+  const dateParam = (e && e.parameter && e.parameter.date)     ? e.parameter.date     : null;
 
   let payload;
   try {
-    const data = readSheetData(sheetName);
-    payload = JSON.stringify({ status: 'ok', sheet: sheetName, data: data });
+    const today      = new Date().toISOString().slice(0, 10);
+    const useHist    = dateParam && dateParam !== today && HIST_ENABLED.includes(sheetName);
+    const targetTab  = useHist ? sheetName + '_Hist' : sheetName;
+    const filterDate = useHist ? dateParam : null;
+
+    const data = readSheetData(targetTab, filterDate);
+    payload = JSON.stringify({ status: 'ok', sheet: sheetName, date: dateParam, data: data });
   } catch (err) {
     payload = JSON.stringify({ status: 'error', message: err.message });
   }
@@ -46,8 +55,9 @@ function doGet(e) {
   return output;
 }
 
-// Lê uma aba e retorna array de objetos com os cabeçalhos como chaves
-function readSheetData(sheetName) {
+// Lê uma aba e retorna array de objetos com os cabeçalhos como chaves.
+// filterDate (opcional): filtra apenas linhas cujo campo atualizado_em começa com essa data (YYYY-MM-DD).
+function readSheetData(sheetName, filterDate) {
   const props   = PropertiesService.getScriptProperties();
   const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
   const ss      = SpreadsheetApp.openById(sheetId);
@@ -62,8 +72,17 @@ function readSheetData(sheetName) {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
     .replace(/\s+/g, '_'));
 
+  const iDate = filterDate ? headers.indexOf('atualizado_em') : -1;
+
   return values.slice(1)
-    .filter(row => row.some(cell => cell !== '' && cell !== null))
+    .filter(row => {
+      if (!row.some(cell => cell !== '' && cell !== null)) return false;
+      if (filterDate && iDate >= 0) {
+        const d = row[iDate] ? row[iDate].toString().slice(0, 10) : '';
+        return d === filterDate;
+      }
+      return true;
+    })
     .map(row => {
       const obj = {};
       headers.forEach((h, i) => {
@@ -94,8 +113,9 @@ const NPS_TAB_NAME             = 'NPS_Calculado';
 const COLABORADORES_SHEET_ID   = '1ksgbwdf5dgsoI9XUiEobFKzsytA_XaOFSNUDlOX0Apk';
 const COLABORADORES_GID        = 1645653528;
 const COLABORADORES_TAB_NAME   = 'Colaboradores';
-const PAGE_SIZE       = 100;
-const SLEEP_MS        = 200;
+const PAGE_SIZE            = 100;
+const SLEEP_MS             = 200;
+const HIST_RETENTION_DAYS  = 90;  // dias de retenção nas abas _Hist
 
 // ────────────────────────────────────────────────────────────
 // ENTRY POINT — disparado automaticamente pelo trigger (6h)
@@ -176,6 +196,12 @@ function fetchAndStoreCND() {
   h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
   tab.setFrozenRows(1);
   Logger.log(`  CND_Municipios: ${writeRows.length} linhas gravadas`);
+
+  // Histórico diário
+  const dateStrCND = new Date().toISOString().slice(0, 10);
+  appendToHistory(ss, CND_TAB_NAME + '_Hist',
+    ['municipio', 'portfolio', 'periodo1', 'periodo2', 'periodo3', 'atualizado_em'],
+    writeRows, 5, dateStrCND);
 }
 
 // Diagnóstico: testa leitura CND sem gravar
@@ -248,6 +274,12 @@ function fetchAndStoreNPS() {
   h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
   tabOut.setFrozenRows(1);
   Logger.log(`  NPS_Calculado: ${rows.length} municípios gravados`);
+
+  // Histórico diário
+  const dateStrNPS = new Date().toISOString().slice(0, 10);
+  appendToHistory(ss, NPS_TAB_NAME + '_Hist',
+    ['municipio', 'total', 'promotores', 'neutros', 'detratores', 'nps_score', 'atualizado_em'],
+    rows, 6, dateStrNPS);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -427,6 +459,12 @@ function fetchAndStoreImplantacoes() {
   ih.setBackground('#1E3A5F'); ih.setFontColor('#FFFFFF'); ih.setFontWeight('bold');
   issuesTab.setFrozenRows(1);
   Logger.log(`  "${IMPL_ISSUES_TAB_NAME}": ${issueRows.length} issues individuais gravados.`);
+
+  // Histórico diário (pivot agregada apenas — issues individuais não vão para histórico)
+  const dateStrImpl = new Date().toISOString().slice(0, 10);
+  appendToHistory(ss, IMPL_TAB_NAME + '_Hist',
+    ['municipio', 'vertical', 'total', 'atrasados', 'no_prazo', 'sem_prazo', 'prazo_minimo', 'atualizado_em'],
+    rows, 7, dateStrImpl);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -540,6 +578,56 @@ function writeJiraChamados(rows) {
   tab.setFrozenRows(1);
 
   Logger.log(`  "${SHEET_TAB_NAME}" atualizada: ${rows.length} linhas.`);
+
+  // Histórico diário
+  const dateStr = new Date().toISOString().slice(0, 10);
+  appendToHistory(ss, SHEET_TAB_NAME + '_Hist',
+    ['municipio', 'vertical', 'total_chamados', 'atualizado_em'],
+    rows, 3, dateStr);
+}
+
+// ────────────────────────────────────────────────────────────
+// HISTÓRICO — appenda snapshot diário e mantém 90 dias
+// Parâmetros:
+//   ss           → Spreadsheet da planilha principal
+//   histTabName  → ex: 'Jira_Chamados_Hist'
+//   headerRow    → array com nomes das colunas (ex: ['municipio','vertical','total_chamados','atualizado_em'])
+//   newRows      → array de arrays com os dados novos
+//   dateColIdx   → índice (0-based) da coluna de timestamp (atualizado_em)
+//   dateStr      → 'YYYY-MM-DD' do dia atual
+// ────────────────────────────────────────────────────────────
+function appendToHistory(ss, histTabName, headerRow, newRows, dateColIdx, dateStr) {
+  let histTab = ss.getSheetByName(histTabName);
+  if (!histTab) {
+    histTab = ss.insertSheet(histTabName);
+    histTab.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
+    const hdr = histTab.getRange(1, 1, 1, headerRow.length);
+    hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
+    histTab.setFrozenRows(1);
+  }
+
+  // Data de corte para retenção (90 dias atrás)
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - HIST_RETENTION_DAYS);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  // Ler linhas existentes, descartar as de hoje (serão substituídas) e as muito antigas
+  let keepRows = [];
+  const lastRow = histTab.getLastRow();
+  if (lastRow > 1) {
+    const existing = histTab.getRange(2, 1, lastRow - 1, headerRow.length).getValues();
+    keepRows = existing.filter(row => {
+      const d = row[dateColIdx] ? row[dateColIdx].toString().slice(0, 10) : '';
+      return d && d !== dateStr && d >= cutoffStr;
+    });
+  }
+
+  // Reescrever: linhas preservadas + novas
+  const allRows = keepRows.concat(newRows);
+  if (lastRow > 1) histTab.getRange(2, 1, lastRow - 1, headerRow.length).clearContent();
+  if (allRows.length > 0) histTab.getRange(2, 1, allRows.length, headerRow.length).setValues(allRows);
+
+  Logger.log(`  "${histTabName}": ${newRows.length} novas linhas para ${dateStr} (total histórico: ${allRows.length}).`);
 }
 
 // ────────────────────────────────────────────────────────────

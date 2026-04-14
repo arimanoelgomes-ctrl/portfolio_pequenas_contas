@@ -100,6 +100,24 @@
     }
     .btn-refresh:hover { background: rgba(255,255,255,0.25); }
     .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+    .date-picker-wrapper {
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 6px; padding: 5px 10px;
+    }
+    .date-picker-wrapper label { font-size: .75rem; opacity: 0.8; white-space: nowrap; cursor: pointer; }
+    .date-picker-input {
+      background: transparent; border: none; color: #fff;
+      font-size: .8rem; outline: none; cursor: pointer; width: 130px;
+    }
+    .date-picker-input::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; opacity: 0.8; }
+    .hist-badge {
+      display: none; background: #D69E2E; color: #1A202C;
+      font-size: .68rem; font-weight: 700;
+      padding: 2px 7px; border-radius: 10px; margin-left: 6px;
+      vertical-align: middle;
+    }
 
     /* ===== Main Layout ===== */
     main {
@@ -424,13 +442,17 @@
         <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
         <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
       </svg>
-      <h1>Portfólio Pequenas Contas <span>Dashboard Executivo</span></h1>
+      <h1>Portfólio Pequenas Contas <span>Dashboard Executivo</span><span class="hist-badge" id="hist-badge">HISTÓRICO</span></h1>
     </div>
     <div class="header-meta">
       <div class="sync-info">
         <div>Jira: <span id="sync-jira">—</span></div>
         <div>CND: <span id="sync-cnd">—</span></div>
         <div>Implantações: <span id="sync-impl">—</span></div>
+      </div>
+      <div class="date-picker-wrapper">
+        <label for="date-picker">📅</label>
+        <input type="date" id="date-picker" class="date-picker-input" onchange="onDateChange(this.value)">
       </div>
       <button class="btn-refresh" id="btn-refresh" onclick="loadAllData()">⟳ Atualizar</button>
     </div>
@@ -640,7 +662,9 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [], colaboradores: [], implantacoes: [], implantacoesIssues: [] };
+const state = { jira: [], risco: [], nps: [], cnd: [], colaboradores: [], implantacoes: [], implantacoesIssues: [], selectedDate: null };
+// Abas que possuem versão histórica no servidor
+const HIST_SHEETS = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios'];
 const charts = {};
 let activeTab = 0;
 
@@ -680,8 +704,11 @@ function fetchSheet(sheetName) {
       }
     };
 
+    const today    = new Date().toISOString().slice(0, 10);
+    const useHist  = state.selectedDate && state.selectedDate !== today && HIST_SHEETS.includes(sheetName);
+    const datePart = useHist ? `&date=${state.selectedDate}` : '';
     const script = document.createElement('script');
-    script.src = `${CONFIG.APPS_SCRIPT_URL}?sheet=${encodeURIComponent(sheetName)}&callback=${cbName}`;
+    script.src = `${CONFIG.APPS_SCRIPT_URL}?sheet=${encodeURIComponent(sheetName)}&callback=${cbName}${datePart}`;
     script.onerror = () => {
       clearTimeout(timeout);
       delete window[cbName];
@@ -689,6 +716,19 @@ function fetchSheet(sheetName) {
     };
     document.head.appendChild(script);
   });
+}
+
+// Chamado quando o usuário muda a data no seletor
+function onDateChange(val) {
+  const today = new Date().toISOString().slice(0, 10);
+  state.selectedDate = (val && val !== today) ? val : null;
+  // Badge HISTÓRICO
+  const badge = document.getElementById('hist-badge');
+  if (badge) badge.style.display = state.selectedDate ? 'inline-block' : 'none';
+  // Rótulo do botão Atualizar (só faz sentido para "hoje")
+  const btn = document.getElementById('btn-refresh');
+  if (btn) btn.textContent = state.selectedDate ? '⟳ Carregar' : '⟳ Atualizar';
+  loadAllData();
 }
 
 // CND: lê da aba CND_Municipios gravada pelo Apps Script (proxy server-side)
@@ -1891,6 +1931,11 @@ function showLoading(show) {
 // ============================================================
 // INICIALIZAÇÃO
 // ============================================================
+(function initDatePicker() {
+  const dp  = document.getElementById('date-picker');
+  const today = new Date().toISOString().slice(0, 10);
+  if (dp) { dp.max = today; dp.value = today; }
+})();
 loadAllData();
 </script>
 </body>
