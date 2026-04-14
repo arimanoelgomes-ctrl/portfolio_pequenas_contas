@@ -589,6 +589,27 @@
   <div class="loading-text">Carregando dados…</div>
 </div>
 
+<!-- Modal: detalhes de implantações -->
+<div class="modal-overlay hidden" id="impl-detail-modal" onclick="closeImplModal(event)">
+  <div class="modal-box" style="max-width:900px;width:95%">
+    <div class="modal-header">
+      <h3 id="impl-modal-title">Implantações</h3>
+      <button class="modal-close" onclick="closeImplModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+      <table class="modal-table" style="font-size:.82rem">
+        <thead><tr>
+          <th style="width:110px">Código</th>
+          <th>Resumo</th>
+          <th style="width:160px">Situação</th>
+          <th style="width:120px">Prazo Contratual</th>
+        </tr></thead>
+        <tbody id="impl-modal-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: demais municípios -->
 <div class="modal-overlay hidden" id="outro-modal" onclick="closeOutroModal(event)">
   <div class="modal-box">
@@ -619,7 +640,7 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [], colaboradores: [], implantacoes: [] };
+const state = { jira: [], risco: [], nps: [], cnd: [], colaboradores: [], implantacoes: [], implantacoesIssues: [] };
 const charts = {};
 let activeTab = 0;
 
@@ -697,13 +718,14 @@ async function loadAllData() {
   showLoading(true);
   document.getElementById('btn-refresh').disabled = true;
 
-  const [jiraRes, riscoRes, npsRes, cndRes, colabRes, implRes] = await Promise.allSettled([
+  const [jiraRes, riscoRes, npsRes, cndRes, colabRes, implRes, implIssuesRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
     fetchSheet('NPS_Calculado'),
     fetchCND(),
     fetchSheet('Colaboradores'),
     fetchSheet('Jira_Implantacoes'),
+    fetchSheet('Jira_Implantacoes_Issues'),
   ]);
 
   if (jiraRes.status === 'fulfilled')  state.jira  = jiraRes.value;
@@ -723,6 +745,9 @@ async function loadAllData() {
 
   if (implRes.status === 'fulfilled')  state.implantacoes = implRes.value;
   else { console.warn('Implantacoes:', implRes.reason?.message); state.implantacoes = []; }
+
+  if (implIssuesRes.status === 'fulfilled') state.implantacoesIssues = implIssuesRes.value;
+  else { console.warn('ImplantacoesIssues:', implIssuesRes.reason?.message); state.implantacoesIssues = []; }
 
   // Timestamps
   const now = new Date().toLocaleString('pt-BR');
@@ -873,6 +898,34 @@ function closeOutroModal(e) {
   // Fecha só se clicou no overlay (fora do box) ou no botão ✕
   if (e && e.target !== document.getElementById('outro-modal')) return;
   document.getElementById('outro-modal').classList.add('hidden');
+}
+
+function openImplModal(td) {
+  const mun  = td.dataset.mun;
+  const vert = td.dataset.vert;
+  const issues = state.implantacoesIssues.filter(r => r.municipio === mun && r.vertical === vert);
+  document.getElementById('impl-modal-title').textContent = `${mun} — ${vert}`;
+  const tbody = document.getElementById('impl-modal-body');
+  if (!issues.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#94A3B8">Detalhes indisponíveis — execute o Apps Script para popular a aba Jira_Implantacoes_Issues.</td></tr>';
+  } else {
+    tbody.innerHTML = issues.map(r => {
+      const prazo = r.prazo ? fmtDate(r.prazo) : '—';
+      const link  = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : r.key;
+      return `<tr>
+        <td style="white-space:nowrap">${link}</td>
+        <td>${r.summary || '—'}</td>
+        <td><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;font-size:.78rem">${r.status || '—'}</span></td>
+        <td style="white-space:nowrap">${prazo}</td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('impl-detail-modal').classList.remove('hidden');
+}
+
+function closeImplModal(e) {
+  if (e && e.target !== document.getElementById('impl-detail-modal')) return;
+  document.getElementById('impl-detail-modal').classList.add('hidden');
 }
 
 function renderChamadosPorCliente() {
@@ -1710,7 +1763,9 @@ function renderImplantacoes() {
       if (cell.atrasados > 0) tipParts.push(`Atrasadas: ${cell.atrasados}${cell.prazo_minimo ? ' (prazo: ' + fmtDate(cell.prazo_minimo) + ')' : ''}`);
       if (cell.no_prazo  > 0) tipParts.push(`No prazo: ${cell.no_prazo}`);
       if (cell.sem_prazo > 0) tipParts.push(`Sem prazo: ${cell.sem_prazo}`);
-      return `<td style="${cb};background:${s.bg};color:${s.text};font-weight:600;border:1px solid ${s.border}" title="${tipParts.join(' · ')}">${cell.total}</td>`;
+      const munAttr  = m.replace(/"/g, '&quot;');
+      const vertAttr = v.replace(/"/g, '&quot;');
+      return `<td style="${cb};background:${s.bg};color:${s.text};font-weight:600;border:1px solid ${s.border};cursor:pointer" title="${tipParts.join(' · ')}" data-mun="${munAttr}" data-vert="${vertAttr}" onclick="openImplModal(this)">${cell.total}</td>`;
     }).join('');
 
     const totalCor = mun.atrasados > 0 ? '#B91C1C' : mun.no_prazo > 0 ? '#15803D' : '#475569';

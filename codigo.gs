@@ -86,7 +86,8 @@ const FIELD_MUNICIPIO = 'customfield_10331'; // Município (string)
 const FIELD_VERTICAL  = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
 const FIELD_PRAZO     = 'customfield_25801'; // Prazo contratual da implantação (date "YYYY-MM-DD")
 const SHEET_TAB_NAME  = 'Jira_Chamados';
-const IMPL_TAB_NAME   = 'Jira_Implantacoes';
+const IMPL_TAB_NAME         = 'Jira_Implantacoes';
+const IMPL_ISSUES_TAB_NAME  = 'Jira_Implantacoes_Issues';
 const CND_TAB_NAME    = 'CND_Municipios';
 const CND_SHEET_ID             = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
 const NPS_TAB_NAME             = 'NPS_Calculado';
@@ -321,7 +322,7 @@ function fetchAndStoreImplantacoes() {
 
   const sessionCookie = getJiraSession(baseUrl, email, password);
   const headers = { 'Cookie': sessionCookie, 'Accept': 'application/json', 'Content-Type': 'application/json' };
-  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, FIELD_PRAZO];
+  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, FIELD_PRAZO, 'status'];
 
   const allIssues = [];
   let startAt = 0;
@@ -402,6 +403,30 @@ function fetchAndStoreImplantacoes() {
   const totalNoPrazo   = Object.values(map).reduce((s, d) => s + d.no_prazo, 0);
   const totalSemPrazo  = Object.values(map).reduce((s, d) => s + d.sem_prazo, 0);
   Logger.log(`  "${IMPL_TAB_NAME}": ${rows.length} linhas (${allIssues.length} issues — ${totalAtrasados} atrasadas, ${totalNoPrazo} no prazo, ${totalSemPrazo} sem prazo).`);
+
+  // Gravar issues individuais na aba Jira_Implantacoes_Issues
+  let issuesTab = ss.getSheetByName(IMPL_ISSUES_TAB_NAME);
+  if (!issuesTab) { issuesTab = ss.insertSheet(IMPL_ISSUES_TAB_NAME); Logger.log(`  Aba "${IMPL_ISSUES_TAB_NAME}" criada.`); }
+
+  const issuesHeader = [['key','url','summary','status','municipio','vertical','prazo','atualizado_em']];
+  issuesTab.getRange(1, 1, 1, 8).setValues(issuesHeader);
+  const lastIssue = issuesTab.getLastRow();
+  if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 8).clearContent();
+
+  const issueRows = allIssues.map(issue => {
+    const municipio = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
+    const vObj      = issue.fields[FIELD_VERTICAL];
+    const vertical  = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
+    const prazo     = issue.fields[FIELD_PRAZO] || '';
+    const status    = (issue.fields.status && issue.fields.status.name) ? issue.fields.status.name : '';
+    return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, prazo, ts];
+  }).sort((a, b) => a[4].localeCompare(b[4], 'pt-BR') || a[5].localeCompare(b[5], 'pt-BR'));
+
+  if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 8).setValues(issueRows);
+  const ih = issuesTab.getRange(1, 1, 1, 8);
+  ih.setBackground('#1E3A5F'); ih.setFontColor('#FFFFFF'); ih.setFontWeight('bold');
+  issuesTab.setFrozenRows(1);
+  Logger.log(`  "${IMPL_ISSUES_TAB_NAME}": ${issueRows.length} issues individuais gravados.`);
 }
 
 // ────────────────────────────────────────────────────────────
