@@ -276,19 +276,19 @@ function _extractStatusFonte(values) {
   const a1 = values[0][0];
   const tz = Session.getScriptTimeZone() || 'America/Sao_Paulo';
 
-  // 1) Se for objeto Date → formata direto
+  // 1) Se for objeto Date → formata direto (só data)
   if (a1 instanceof Date && !isNaN(a1.getTime())) {
-    return Utilities.formatDate(a1, tz, 'dd/MM/yyyy HH:mm:ss');
+    return Utilities.formatDate(a1, tz, 'dd/MM/yyyy');
   }
 
-  // 2) Se for string → tenta extrair DD/MM/YYYY (com hora opcional)
+  // 2) Se for string → extrai DD/MM/YYYY
   const s = (a1 === null || a1 === undefined ? '' : a1.toString());
-  const m = s.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/);
+  const m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if (m) {
-    const datePart = m[1];
-    let timePart = m[2] || '00:00:00';
-    if (timePart.length === 5) timePart += ':00';
-    return datePart + ' ' + timePart;
+    const dd = m[1].padStart(2,'0');
+    const mm = m[2].padStart(2,'0');
+    const yy = m[3].length === 2 ? '20' + m[3] : m[3];
+    return dd + '/' + mm + '/' + yy;
   }
   return '';
 }
@@ -445,6 +445,32 @@ function fetchAndStoreCNDEstadual() {
   Logger.log('  CND_Estadual: ' + writeRows.length + ' linhas gravadas');
 
   appendToHistory(ss, CND_ESTADUAL_TAB + '_Hist', headers, writeRows, W - 1, dateStr);
+}
+
+// Diagnóstico: lê SICONFI direto da planilha e loga um município específico
+// Uso: alterar o parâmetro e executar no editor Apps Script → ver Logs
+function diagnosticarSICONFI(municipioAlvo) {
+  municipioAlvo = municipioAlvo || 'Ipira';
+  Logger.log('🔍 Diagnóstico SICONFI — alvo: ' + municipioAlvo);
+  const values = _readSheetByGid(SICONFI_SHEET_ID, SICONFI_GID);
+  Logger.log('  Total linhas: ' + values.length);
+  Logger.log('  Cabeçalho (linha 3): ' + values[2].join(' | '));
+  const headerRow = values[2];
+  const idx = (name) => headerRow.findIndex(h => _normStr(h) === _normStr(name));
+  const iPrest = idx('Prestador'), iCanal = idx('Canal'), iMun = idx('Municipio'), iTipo = idx('Tipo');
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const iMes = meses.map(m => idx(m));
+  Logger.log('  Índices: Prestador=' + iPrest + ' Canal=' + iCanal + ' Mun=' + iMun + ' Tipo=' + iTipo);
+  Logger.log('  Índices meses: ' + iMes.join(','));
+  const matches = values.slice(3).filter(r =>
+    r[iMun] && _normStr(r[iMun]) === _normStr(municipioAlvo));
+  Logger.log('  Linhas encontradas para ' + municipioAlvo + ': ' + matches.length);
+  matches.forEach((r, i) => {
+    Logger.log('  Linha ' + (i+1) + ' — Prestador="' + r[iPrest] + '" Canal="' + r[iCanal] + '" Tipo="' + r[iTipo] + '"');
+    meses.forEach((m, j) => {
+      Logger.log('    ' + m + ' (col ' + iMes[j] + ') = "' + r[iMes[j]] + '"');
+    });
+  });
 }
 
 // Diagnóstico: testa leitura CND sem gravar

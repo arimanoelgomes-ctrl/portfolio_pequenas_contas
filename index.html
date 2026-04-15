@@ -1218,27 +1218,25 @@ function makeCNDDonutGeneric(canvasId, comCount, semCount, opts) {
   return { com, sem, total, pct };
 }
 
-// Formata qualquer representação de data para dd/MM/yyyy HH:mm:ss
-// Aceita: Date JS string ("Fri Mar 27 2026..."), ISO, ou já formatado DD/MM/YYYY
+// Formata qualquer representação de data para dd/MM/yyyy (sem hora)
+// Aceita: Date JS string ("Fri Mar 27 2026..."), ISO, ou já formatado DD/MM/YYYY [HH:mm:ss]
 function formatDataFonte(raw) {
   if (!raw) return '';
   const s = raw.toString().trim();
-  // Já está no formato desejado → devolve como está
-  if (/^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2}$/.test(s)) return s;
-  // Só data DD/MM/YYYY sem hora → adiciona 00:00:00
-  const mDate = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  // Já é DD/MM/YYYY (com ou sem hora) → devolve só a parte da data
+  const mDate = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if (mDate) {
     const dd = mDate[1].padStart(2,'0'), mm = mDate[2].padStart(2,'0');
     let yy = mDate[3]; if (yy.length === 2) yy = '20' + yy;
-    return `${dd}/${mm}/${yy} 00:00:00`;
+    return `${dd}/${mm}/${yy}`;
   }
   // Qualquer outra coisa parseável (JS Date toString, ISO, etc.)
   const d = new Date(s);
   if (!isNaN(d.getTime())) {
     const pad = n => String(n).padStart(2,'0');
-    return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
   }
-  return s; // fallback: mostra como veio
+  return s; // fallback
 }
 
 // Title Case para município (com preposições minúsculas) — aplicado no client como defesa
