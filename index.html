@@ -585,12 +585,14 @@
 
       <!-- Estadual: 3 donuts (certidões quadrimestrais) + tabela -->
       <div id="cnd-pane-estadual">
+        <div id="cnd-estadual-status" style="margin-bottom:12px"></div>
         <div id="cnd-estadual-donuts" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start"></div>
         <div id="cnd-estadual-table" style="margin-top:24px"></div>
       </div>
 
       <!-- Federal: donuts por mês + tabela heatmap -->
       <div id="cnd-pane-federal" style="display:none">
+        <div id="cnd-federal-status" style="margin-bottom:12px"></div>
         <div id="cnd-federal-donuts" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-items:start"></div>
         <div id="cnd-federal-table" style="margin-top:24px"></div>
       </div>
@@ -751,6 +753,7 @@ function fetchCNDEstadual() {
       entidade:     r.entidade || '',
       meses_atraso: r.meses_atraso || '',
       tipo_atraso:  r.tipo_atraso || '',
+      status_fonte: r.status_fonte || '',
       periodo1:     normVal(r.periodo1),
       periodo2:     normVal(r.periodo2),
       periodo3:     normVal(r.periodo3),
@@ -766,7 +769,7 @@ function fetchCNDFederal() {
   const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   return fetchSheet('CND_Federal').then(rows => {
     return rows.filter(r => r.municipio).map(r => {
-      const out = { municipio: r.municipio, tipo: r.tipo || '' };
+      const out = { municipio: r.municipio, tipo: r.tipo || '', status_fonte: r.status_fonte || '' };
       MESES.forEach(m => { out[m] = (r[m] || '').toString().trim(); });
       return out;
     });
@@ -1215,6 +1218,18 @@ function makeCNDDonutGeneric(canvasId, comCount, semCount, opts) {
   return { com, sem, total, pct };
 }
 
+// Banner "Fonte atualizada em DD/MM/YYYY" no topo de cada sub-aba CND
+function renderCNDStatusFonte(containerId, dataFonte, nomeFonte) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!dataFonte) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div style="display:inline-flex;align-items:center;gap:8px;background:#EDF2F7;border-left:3px solid #2B6CB0;padding:8px 14px;border-radius:6px;font-size:.82rem;color:#2D3748">
+      <span style="font-size:1rem">📅</span>
+      <span><strong>Fonte ${nomeFonte} atualizada em:</strong> ${dataFonte}</span>
+    </div>`;
+}
+
 // Alterna sub-aba CND (Estadual/Federal)
 function switchCNDSubTab(tab) {
   state.cndSubTab = tab;
@@ -1265,6 +1280,7 @@ function renderCNDEstadual() {
   if (!state.cndEstadual.length) {
     donutsDiv.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted)">Dados CND Estadual indisponíveis.</div>';
     tableDiv.innerHTML = '';
+    renderCNDStatusFonte('cnd-estadual-status', '', '');
     return;
   }
 
@@ -1272,6 +1288,10 @@ function renderCNDEstadual() {
   const lab1 = state.cndEstadual[0].p1_label || 'Período 1';
   const lab2 = state.cndEstadual[0].p2_label || 'Período 2';
   const lab3 = state.cndEstadual[0].p3_label || 'Período 3';
+  const statusFonte = state.cndEstadual[0].status_fonte || '';
+
+  // Badge da última atualização da fonte (e-Sfinge TCE/SC)
+  renderCNDStatusFonte('cnd-estadual-status', statusFonte, 'e-Sfinge TCE/SC');
 
   donutsDiv.innerHTML = `
     <div>
@@ -1349,8 +1369,12 @@ function renderCNDFederal() {
   if (!state.cndFederal.length) {
     donutsDiv.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted)">Dados CND Federal indisponíveis.</div>';
     tableDiv.innerHTML = '';
+    renderCNDStatusFonte('cnd-federal-status', '', '');
     return;
   }
+
+  // Badge da última atualização da fonte (SICONFI)
+  renderCNDStatusFonte('cnd-federal-status', state.cndFederal[0].status_fonte || '', 'SICONFI');
 
   // Classifica status: 'Enviado' = Com CND; 'Com problema' ou 'Não Enviado' = Sem CND; vazio = n/d
   const classify = (v) => {

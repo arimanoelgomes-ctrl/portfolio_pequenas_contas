@@ -258,6 +258,14 @@ function _isMunicipioPortfolio(nome) {
   return !!PORTFOLIO_MUNICIPIOS_SET[_normStr(nome)];
 }
 
+// Extrai "Status: DD/MM/YYYY" da célula A1 das planilhas CND (SICONFI/e-Sfinge)
+function _extractStatusFonte(values) {
+  if (!values || !values.length || !values[0] || !values[0].length) return '';
+  const a1 = (values[0][0] === null || values[0][0] === undefined ? '' : values[0][0].toString());
+  const m = a1.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+  return m ? m[1] : '';
+}
+
 // ────────────────────────────────────────────────────────────
 // CND FEDERAL (SICONFI) — status mensal por município (12 meses do ano)
 // Cabeçalhos estão na linha 3 da planilha de origem.
@@ -288,18 +296,21 @@ function fetchAndStoreCNDFederal() {
 
   const nowIso  = new Date().toISOString();
   const dateStr = nowIso.slice(0, 10);
+  const statusFonte = _extractStatusFonte(values);
+  Logger.log('  SICONFI: status fonte (A1) = ' + statusFonte);
 
   const writeRows = filtrados.map(r => {
     const out = [
       String(r[iMun]  || '').trim(),
       iTipo >= 0 ? String(r[iTipo] || '').trim() : '',
+      statusFonte,
     ];
     for (let i = 0; i < 12; i++) out.push(iMes[i] >= 0 ? String(r[iMes[i]] || '').trim() : '');
     out.push(nowIso);
     return out;
   });
 
-  const headers = ['municipio','tipo','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez','atualizado_em'];
+  const headers = ['municipio','tipo','status_fonte','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez','atualizado_em'];
   const W = headers.length;
 
   const props   = PropertiesService.getScriptProperties();
@@ -370,12 +381,15 @@ function fetchAndStoreCNDEstadual() {
 
   const nowIso  = new Date().toISOString();
   const dateStr = nowIso.slice(0, 10);
+  const statusFonte = _extractStatusFonte(values);
+  Logger.log('  e-Sfinge: status fonte (A1) = ' + statusFonte);
 
   const writeRows = filtrados.map(r => [
     String(r[iMun] || '').trim(),
     iEnt >= 0 ? String(r[iEnt] || '').trim() : '',
     iMesesAtraso >= 0 ? String(r[iMesesAtraso] || '').trim() : '',
     iTipoAtraso  >= 0 ? String(r[iTipoAtraso]  || '').trim() : '',
+    statusFonte,
     normCert(r[certIdx[0]]),
     normCert(r[certIdx[1]]),
     normCert(r[certIdx[2]]),
@@ -385,7 +399,7 @@ function fetchAndStoreCNDEstadual() {
     nowIso,
   ]);
 
-  const headers = ['municipio','entidade','meses_atraso','tipo_atraso','periodo1','periodo2','periodo3','p1_label','p2_label','p3_label','atualizado_em'];
+  const headers = ['municipio','entidade','meses_atraso','tipo_atraso','status_fonte','periodo1','periodo2','periodo3','p1_label','p2_label','p3_label','atualizado_em'];
   const W = headers.length;
 
   const props   = PropertiesService.getScriptProperties();
