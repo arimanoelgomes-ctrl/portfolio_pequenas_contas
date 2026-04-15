@@ -234,6 +234,30 @@ function _isPequenasContasBetha(row, iPrest, iCanal) {
       && _normStr(row[iCanal]).indexOf('medias') >= 0;
 }
 
+// Whitelist de municípios do portfólio de Pequenas Contas
+// (normalizados: sem acentos, minúsculos, sem espaços duplos)
+const PORTFOLIO_MUNICIPIOS = [
+  'abdon batista','agrolandia','anchieta','angelina','anita garibaldi',
+  'balneario arroio do silva','balneario barra do sul','balneario camboriu','balneario picarras',
+  'bandeirante','barra bonita','barra velha','bela vista do toldo','belmonte','benedito novo',
+  'brunopolis','cacador','calmon','campo alegre','campos novos','capao alto','chapeco','concordia',
+  'dona emma','ermo','erval velho','frei rogerio','imbuia','ipira','ipuacu','iraceminha','ita',
+  'itajai','jupia','lacerdopolis','lajeado grande','leoberto leal','lindoia do sul','luiz alves',
+  'luzerna','mafra','massaranduba','meleiro','modelo','morro da fumaca','morro grande','penha',
+  'peritiba','pescaria brava','pomerode','praia grande','rio do sul','rio fortuna','rio rufino',
+  'saltinho','santa terezinha','sao bernardino','sao bonifacio','sao cristovao do sul',
+  'sao joao do oeste','sao jose do cedro','sao martinho','sao miguel da boa vista',
+  'sao pedro de alcantara','tangara','tigrinhos','timbo','treviso','treze de maio','videira'
+];
+const PORTFOLIO_MUNICIPIOS_SET = (function() {
+  const s = {};
+  PORTFOLIO_MUNICIPIOS.forEach(m => { s[m] = true; });
+  return s;
+})();
+function _isMunicipioPortfolio(nome) {
+  return !!PORTFOLIO_MUNICIPIOS_SET[_normStr(nome)];
+}
+
 // ────────────────────────────────────────────────────────────
 // CND FEDERAL (SICONFI) — status mensal por município (12 meses do ano)
 // Cabeçalhos estão na linha 3 da planilha de origem.
@@ -259,8 +283,8 @@ function fetchAndStoreCNDFederal() {
   }
 
   const filtrados = values.slice(3).filter(r =>
-    _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun]);
-  Logger.log('  SICONFI: ' + filtrados.length + ' linhas após filtro');
+    _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun] && _isMunicipioPortfolio(r[iMun]));
+  Logger.log('  SICONFI: ' + filtrados.length + ' linhas após filtro (Betha + Pequenas e Médias + portfólio)');
 
   const nowIso  = new Date().toISOString();
   const dateStr = nowIso.slice(0, 10);
@@ -334,8 +358,8 @@ function fetchAndStoreCNDEstadual() {
   }
 
   const filtrados = values.slice(3).filter(r =>
-    _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun]);
-  Logger.log('  e-Sfinge: ' + filtrados.length + ' linhas após filtro');
+    _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun] && _isMunicipioPortfolio(r[iMun]));
+  Logger.log('  e-Sfinge: ' + filtrados.length + ' linhas após filtro (Betha + Pequenas e Médias + portfólio)');
 
   const normCert = (v) => {
     const s = _normStr(v);
