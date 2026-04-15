@@ -28,7 +28,7 @@ const SHEET_ID_DEFAULT = '1MKsApbL7IPf5jAsAO9N03AxAcC3ptzYbrgNQrOr_R4s';
 // Dashboard chama: ?sheet=Jira_Chamados&callback=fn
 // ────────────────────────────────────────────────────────────
 // Abas que possuem versão histórica (_Hist)
-const HIST_ENABLED = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios'];
+const HIST_ENABLED = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
 
 function doGet(e) {
   const callback  = (e && e.parameter && e.parameter.callback) ? e.parameter.callback : null;
@@ -109,6 +109,13 @@ const IMPL_TAB_NAME         = 'Jira_Implantacoes';
 const IMPL_ISSUES_TAB_NAME  = 'Jira_Implantacoes_Issues';
 const CND_TAB_NAME    = 'CND_Municipios';
 const CND_SHEET_ID             = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
+// CND Federal (SICONFI) e Estadual (e-Sfinge SC) — planilhas mantidas pelo governo
+const SICONFI_SHEET_ID  = '1vrRNrQoKhFllqH8OIxQveeUFt-LUbdw1hsBwrh5OAI4';
+const SICONFI_GID       = 1585345281;
+const ESFINGE_SHEET_ID  = '1hRXUjAvwJKhTecn0SYDT2n5_EomjNexStlmNfKOcVvs';
+const ESFINGE_GID       = 1585345281;
+const CND_FEDERAL_TAB   = 'CND_Federal';
+const CND_ESTADUAL_TAB  = 'CND_Estadual';
 const NPS_TAB_NAME             = 'NPS_Calculado';
 const COLABORADORES_SHEET_ID   = '1ksgbwdf5dgsoI9XUiEobFKzsytA_XaOFSNUDlOX0Apk';
 const COLABORADORES_GID        = 1645653528;
@@ -130,8 +137,11 @@ function onTimeTrigger() {
     writeJiraChamados(rows);
     Logger.log(`  Jira: ${rows.length} linhas gravadas`);
     fetchAndStoreCND();
+    fetchAndStoreCNDFederal();
+    fetchAndStoreCNDEstadual();
     fetchAndStoreNPS();
     fetchAndStoreColaboradores();
+    snapshotRiscoExclusaoHistory();
     fetchAndStoreImplantacoes();
     Logger.log(`✅ Concluído em ${Math.round((new Date()-inicio)/1000)}s`);
   } catch (e) {
@@ -202,6 +212,174 @@ function fetchAndStoreCND() {
   appendToHistory(ss, CND_TAB_NAME + '_Hist',
     ['municipio', 'portfolio', 'periodo1', 'periodo2', 'periodo3', 'atualizado_em'],
     writeRows, 5, dateStrCND);
+}
+
+// ────────────────────────────────────────────────────────────
+// Helpers compartilhados por CND Federal/Estadual
+// ────────────────────────────────────────────────────────────
+function _normStr(s) {
+  return (s === null || s === undefined ? '' : s.toString()).trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+function _readSheetByGid(sheetId, gid) {
+  const ss  = SpreadsheetApp.openById(sheetId);
+  const tab = ss.getSheets().find(s => s.getSheetId() === gid);
+  if (!tab) throw new Error('Aba gid=' + gid + ' não encontrada em ' + sheetId);
+  return tab.getDataRange().getValues();
+}
+// Filtro compartilhado: apenas Betha Sistemas + Canal Pequenas e Médias Contas
+function _isPequenasContasBetha(row, iPrest, iCanal) {
+  return _normStr(row[iPrest]) === 'betha sistemas'
+      && _normStr(row[iCanal]).indexOf('pequenas') >= 0
+      && _normStr(row[iCanal]).indexOf('medias') >= 0;
+}
+
+// ────────────────────────────────────────────────────────────
+// CND FEDERAL (SICONFI) — status mensal por município (12 meses do ano)
+// Cabeçalhos estão na linha 3 da planilha de origem.
+// Grava CND_Federal: municipio, tipo, jan..dez, atualizado_em
+// ────────────────────────────────────────────────────────────
+function fetchAndStoreCNDFederal() {
+  Logger.log('  Buscando CND Federal (SICONFI)...');
+  const values = _readSheetByGid(SICONFI_SHEET_ID, SICONFI_GID);
+  if (values.length < 4) { Logger.log('  SICONFI: sem dados'); return; }
+
+  const headerRow = values[2]; // linha 3 = cabeçalhos
+  const idx = (name) => headerRow.findIndex(h => _normStr(h) === _normStr(name));
+  const iPrest = idx('Prestador');
+  const iCanal = idx('Canal');
+  const iMun   = idx('Municipio');
+  const iTipo  = idx('Tipo');
+  const meses  = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const iMes   = meses.map(m => idx(m));
+
+  if (iPrest < 0 || iCanal < 0 || iMun < 0) {
+    Logger.log('  SICONFI: cabeçalhos Prestador/Canal/Municipio não encontrados');
+    return;
+  }
+
+  const filtrados = values.slice(3).filter(r =>
+    _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun]);
+  Logger.log('  SICONFI: ' + filtrados.length + ' linhas após filtro');
+
+  const nowIso  = new Date().toISOString();
+  const dateStr = nowIso.slice(0, 10);
+
+  const writeRows = filtrados.map(r => {
+    const out = [
+      String(r[iMun]  || '').trim(),
+      iTipo >= 0 ? String(r[iTipo] || '').trim() : '',
+    ];
+    for (let i = 0; i < 12; i++) out.push(iMes[i] >= 0 ? String(r[iMes[i]] || '').trim() : '');
+    out.push(nowIso);
+    return out;
+  });
+
+  const headers = ['municipio','tipo','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez','atualizado_em'];
+  const W = headers.length;
+
+  const props   = PropertiesService.getScriptProperties();
+  const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
+  const ss      = SpreadsheetApp.openById(sheetId);
+  let tab = ss.getSheetByName(CND_FEDERAL_TAB);
+  if (!tab) tab = ss.insertSheet(CND_FEDERAL_TAB);
+
+  tab.getRange(1, 1, 1, W).setValues([headers]);
+  if (tab.getLastRow() > 1) tab.getRange(2, 1, tab.getLastRow() - 1, W).clearContent();
+  if (writeRows.length > 0) tab.getRange(2, 1, writeRows.length, W).setValues(writeRows);
+
+  const h = tab.getRange(1, 1, 1, W);
+  h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
+  tab.setFrozenRows(1);
+  Logger.log('  CND_Federal: ' + writeRows.length + ' linhas gravadas');
+
+  appendToHistory(ss, CND_FEDERAL_TAB + '_Hist', headers, writeRows, W - 1, dateStr);
+}
+
+// ────────────────────────────────────────────────────────────
+// CND ESTADUAL (e-Sfinge SC) — 3 certidões quadrimestrais (Sim/Não)
+// Cabeçalhos estão na linha 3. Colunas "Certidão ..." usadas como P1/P2/P3.
+// Grava CND_Estadual: municipio, entidade, meses_atraso, tipo_atraso,
+//   periodo1, periodo2, periodo3, p1_label, p2_label, p3_label, atualizado_em
+// ────────────────────────────────────────────────────────────
+function fetchAndStoreCNDEstadual() {
+  Logger.log('  Buscando CND Estadual (e-Sfinge SC)...');
+  const values = _readSheetByGid(ESFINGE_SHEET_ID, ESFINGE_GID);
+  if (values.length < 4) { Logger.log('  e-Sfinge: sem dados'); return; }
+
+  const headerRow = values[2];
+  const idx = (name) => headerRow.findIndex(h => _normStr(h) === _normStr(name));
+  const iPrest = idx('Prestador');
+  const iCanal = idx('Canal');
+  const iMun   = idx('Municipio');
+  const iEnt   = idx('Entidade');
+  const iMesesAtraso = idx('Meses em atraso');
+  const iTipoAtraso  = idx('Tipo atraso');
+
+  // Detecta as 3 colunas "Certidão ..." dinamicamente, preservando o texto do rótulo
+  const certIdx = [];
+  const certLabels = [];
+  headerRow.forEach((h, i) => {
+    const s = h ? h.toString().trim() : '';
+    if (/^Certid[ãa]o\s/i.test(s)) {
+      certIdx.push(i);
+      certLabels.push(s.replace(/^Certid[ãa]o\s+/i, '').trim());
+    }
+  });
+  Logger.log('  e-Sfinge: certidões detectadas = ' + certLabels.join(' | '));
+
+  if (iPrest < 0 || iCanal < 0 || iMun < 0 || certIdx.length < 3) {
+    Logger.log('  e-Sfinge: cabeçalhos obrigatórios ausentes (certIdx=' + certIdx.length + ')');
+    return;
+  }
+
+  const filtrados = values.slice(3).filter(r =>
+    _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun]);
+  Logger.log('  e-Sfinge: ' + filtrados.length + ' linhas após filtro');
+
+  const normCert = (v) => {
+    const s = _normStr(v);
+    if (s === 'sim') return 'Com CND';
+    if (s === 'nao') return 'Sem CND';
+    return '';
+  };
+
+  const nowIso  = new Date().toISOString();
+  const dateStr = nowIso.slice(0, 10);
+
+  const writeRows = filtrados.map(r => [
+    String(r[iMun] || '').trim(),
+    iEnt >= 0 ? String(r[iEnt] || '').trim() : '',
+    iMesesAtraso >= 0 ? String(r[iMesesAtraso] || '').trim() : '',
+    iTipoAtraso  >= 0 ? String(r[iTipoAtraso]  || '').trim() : '',
+    normCert(r[certIdx[0]]),
+    normCert(r[certIdx[1]]),
+    normCert(r[certIdx[2]]),
+    certLabels[0] || '',
+    certLabels[1] || '',
+    certLabels[2] || '',
+    nowIso,
+  ]);
+
+  const headers = ['municipio','entidade','meses_atraso','tipo_atraso','periodo1','periodo2','periodo3','p1_label','p2_label','p3_label','atualizado_em'];
+  const W = headers.length;
+
+  const props   = PropertiesService.getScriptProperties();
+  const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
+  const ss      = SpreadsheetApp.openById(sheetId);
+  let tab = ss.getSheetByName(CND_ESTADUAL_TAB);
+  if (!tab) tab = ss.insertSheet(CND_ESTADUAL_TAB);
+
+  tab.getRange(1, 1, 1, W).setValues([headers]);
+  if (tab.getLastRow() > 1) tab.getRange(2, 1, tab.getLastRow() - 1, W).clearContent();
+  if (writeRows.length > 0) tab.getRange(2, 1, writeRows.length, W).setValues(writeRows);
+
+  const h = tab.getRange(1, 1, 1, W);
+  h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
+  tab.setFrozenRows(1);
+  Logger.log('  CND_Estadual: ' + writeRows.length + ' linhas gravadas');
+
+  appendToHistory(ss, CND_ESTADUAL_TAB + '_Hist', headers, writeRows, W - 1, dateStr);
 }
 
 // Diagnóstico: testa leitura CND sem gravar
@@ -308,6 +486,9 @@ function fetchAndStoreColaboradores() {
     if (s.includes('area de atendimento')) iAtend = i;
   });
 
+  const nowIso  = new Date().toISOString();
+  const dateStr = nowIso.slice(0, 10);
+
   var rows = values.slice(1)
     .filter(function(row) { return row.some(function(c) { return c !== ''; }); })
     .map(function(row) {
@@ -317,6 +498,7 @@ function fetchAndStoreColaboradores() {
         iArea     >= 0 ? String(row[iArea]     || '') : '',
         iRegiao   >= 0 ? String(row[iRegiao]   || '') : '',
         iAtend    >= 0 ? String(row[iAtend]    || '') : '',
+        nowIso,
       ];
     });
 
@@ -326,14 +508,18 @@ function fetchAndStoreColaboradores() {
   var tabOut = ss.getSheetByName(COLABORADORES_TAB_NAME);
   if (!tabOut) tabOut = ss.insertSheet(COLABORADORES_TAB_NAME);
 
-  tabOut.getRange(1, 1, 1, 5).setValues([['analista', 'vaga', 'area_de_atuacao', 'regiao', 'area_de_atendimento']]);
-  if (tabOut.getLastRow() > 1) tabOut.getRange(2, 1, tabOut.getLastRow() - 1, 5).clearContent();
-  if (rows.length > 0) tabOut.getRange(2, 1, rows.length, 5).setValues(rows);
+  tabOut.getRange(1, 1, 1, 6).setValues([['analista', 'vaga', 'area_de_atuacao', 'regiao', 'area_de_atendimento', 'atualizado_em']]);
+  if (tabOut.getLastRow() > 1) tabOut.getRange(2, 1, tabOut.getLastRow() - 1, 6).clearContent();
+  if (rows.length > 0) tabOut.getRange(2, 1, rows.length, 6).setValues(rows);
 
-  const hdr = tabOut.getRange(1, 1, 1, 5);
+  const hdr = tabOut.getRange(1, 1, 1, 6);
   hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
   tabOut.setFrozenRows(1);
   Logger.log('  Colaboradores: ' + rows.length + ' registros gravados');
+
+  appendToHistory(ss, COLABORADORES_TAB_NAME + '_Hist',
+    ['analista', 'vaga', 'area_de_atuacao', 'regiao', 'area_de_atendimento', 'atualizado_em'],
+    rows, 5, dateStr);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -628,6 +814,51 @@ function appendToHistory(ss, histTabName, headerRow, newRows, dateColIdx, dateSt
   if (allRows.length > 0) histTab.getRange(2, 1, allRows.length, headerRow.length).setValues(allRows);
 
   Logger.log(`  "${histTabName}": ${newRows.length} novas linhas para ${dateStr} (total histórico: ${allRows.length}).`);
+}
+
+// ────────────────────────────────────────────────────────────
+// RISCO DE EXCLUSÃO — snapshot diário (aba populada manualmente)
+// Lê o estado atual da aba "Risco de Exclusão" e grava em "Risco de Exclusão_Hist"
+// ────────────────────────────────────────────────────────────
+function snapshotRiscoExclusaoHistory() {
+  Logger.log('  Snapshot Risco de Exclusão...');
+  const props   = PropertiesService.getScriptProperties();
+  const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
+  const ss      = SpreadsheetApp.openById(sheetId);
+  const tab     = ss.getSheetByName('Risco de Exclusão');
+  if (!tab) { Logger.log('  Risco: aba não encontrada'); return; }
+
+  const values = tab.getDataRange().getValues();
+  if (values.length < 2) { Logger.log('  Risco: sem dados'); return; }
+
+  const headers = values[0].map(function(h) {
+    return h.toString().trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '_');
+  });
+  const iMun = headers.indexOf('municipio');
+  const iRis = headers.indexOf('risco');
+  const iMot = headers.indexOf('motivo');
+  const iCon = headers.indexOf('consultor');
+
+  const nowIso  = new Date().toISOString();
+  const dateStr = nowIso.slice(0, 10);
+
+  const rows = values.slice(1)
+    .filter(function(r) { return r.some(function(c) { return c !== '' && c !== null; }); })
+    .map(function(r) {
+      return [
+        iMun >= 0 ? String(r[iMun] || '') : '',
+        iRis >= 0 ? String(r[iRis] || '') : '',
+        iMot >= 0 ? String(r[iMot] || '') : '',
+        iCon >= 0 ? String(r[iCon] || '') : '',
+        nowIso,
+      ];
+    });
+
+  appendToHistory(ss, 'Risco de Exclusão_Hist',
+    ['municipio', 'risco', 'motivo', 'consultor', 'atualizado_em'],
+    rows, 4, dateStr);
 }
 
 // ────────────────────────────────────────────────────────────

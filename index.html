@@ -569,25 +569,31 @@
     <!-- View: CND (pos 4) -->
     <div class="view" id="view-2">
       <div class="view-title">Situação CND do Portfólio</div>
-      <div class="view-subtitle">Clientes com e sem Certidão Negativa de Débito por período • Fonte: Sistema CND</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start;margin-top:8px">
-        <div>
-          <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 1</div>
-          <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">06/06 – 06/10/2025</div>
-          <div class="chart-wrap short"><canvas id="chart-cnd-p1"></canvas></div>
-        </div>
-        <div>
-          <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 2</div>
-          <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">06/10/2025 – 06/02/2026</div>
-          <div class="chart-wrap short"><canvas id="chart-cnd-p2"></canvas></div>
-        </div>
-        <div>
-          <div style="text-align:center;font-size:.78rem;font-weight:700;color:var(--accent);margin-bottom:2px">Período 3 — Atual ★</div>
-          <div style="text-align:center;font-size:.72rem;color:var(--accent);margin-bottom:6px">06/02 – 06/06/2026</div>
-          <div class="chart-wrap short"><canvas id="chart-2"></canvas></div>
-        </div>
+      <div class="view-subtitle">Certidões Negativas de Débito por esfera • Fonte: e-Sfinge (SC) e SICONFI (Federal)</div>
+
+      <!-- Sub-abas Estadual / Federal -->
+      <div style="display:flex;gap:8px;margin:12px 0 16px;border-bottom:2px solid #E2E8F0">
+        <button id="cnd-sub-estadual" class="cnd-sub-btn" onclick="switchCNDSubTab('estadual')"
+          style="padding:8px 18px;background:none;border:none;border-bottom:3px solid transparent;font-weight:700;font-size:.9rem;color:var(--text-muted);cursor:pointer;margin-bottom:-2px">
+          🏛️ Estadual (SC)
+        </button>
+        <button id="cnd-sub-federal" class="cnd-sub-btn" onclick="switchCNDSubTab('federal')"
+          style="padding:8px 18px;background:none;border:none;border-bottom:3px solid transparent;font-weight:700;font-size:.9rem;color:var(--text-muted);cursor:pointer;margin-bottom:-2px">
+          🇧🇷 Federal
+        </button>
       </div>
-      <div id="cnd-table" style="margin-top:24px"></div>
+
+      <!-- Estadual: 3 donuts (certidões quadrimestrais) + tabela -->
+      <div id="cnd-pane-estadual">
+        <div id="cnd-estadual-donuts" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start"></div>
+        <div id="cnd-estadual-table" style="margin-top:24px"></div>
+      </div>
+
+      <!-- Federal: donuts por mês + tabela heatmap -->
+      <div id="cnd-pane-federal" style="display:none">
+        <div id="cnd-federal-donuts" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-items:start"></div>
+        <div id="cnd-federal-table" style="margin-top:24px"></div>
+      </div>
     </div>
 
     <!-- View: Colaboradores (pos 5) -->
@@ -662,9 +668,9 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [], colaboradores: [], implantacoes: [], implantacoesIssues: [], selectedDate: null };
+const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], selectedDate: null };
 // Abas que possuem versão histórica no servidor
-const HIST_SHEETS = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios'];
+const HIST_SHEETS = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
 const charts = {};
 let activeTab = 0;
 
@@ -731,23 +737,39 @@ function onDateChange(val) {
   loadAllData();
 }
 
-// CND: lê da aba CND_Municipios gravada pelo Apps Script (proxy server-side)
-function fetchCND() {
-  return fetchSheet('CND_Municipios').then(rows => {
+// CND Estadual (e-Sfinge SC): 3 certidões quadrimestrais por entidade
+function fetchCNDEstadual() {
+  return fetchSheet('CND_Estadual').then(rows => {
     const normVal = v => {
-      if (!v) return 'Sem CND';
-      return v.toString().toLowerCase().includes('com') ? 'Com CND' : 'Sem CND';
+      const s = (v || '').toString().toLowerCase();
+      if (s.includes('com')) return 'Com CND';
+      if (s.includes('sem')) return 'Sem CND';
+      return '';
     };
-    return rows
-      .filter(r => r.municipio)
-      .map(r => ({
-        municipio:   r.municipio,
-        portfolio:   r.portfolio || '',
-        periodo1:    normVal(r.periodo1),
-        periodo2:    normVal(r.periodo2),
-        periodo3:    normVal(r.periodo3),
-        statusAtual: normVal(r.periodo3 || r.periodo2 || r.periodo1),
-      }));
+    return rows.filter(r => r.municipio).map(r => ({
+      municipio:    r.municipio,
+      entidade:     r.entidade || '',
+      meses_atraso: r.meses_atraso || '',
+      tipo_atraso:  r.tipo_atraso || '',
+      periodo1:     normVal(r.periodo1),
+      periodo2:     normVal(r.periodo2),
+      periodo3:     normVal(r.periodo3),
+      p1_label:     r.p1_label || 'Período 1',
+      p2_label:     r.p2_label || 'Período 2',
+      p3_label:     r.p3_label || 'Período 3',
+    }));
+  });
+}
+
+// CND Federal (SICONFI): status mensal Enviado/Com problema/Não Enviado por município
+function fetchCNDFederal() {
+  const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  return fetchSheet('CND_Federal').then(rows => {
+    return rows.filter(r => r.municipio).map(r => {
+      const out = { municipio: r.municipio, tipo: r.tipo || '' };
+      MESES.forEach(m => { out[m] = (r[m] || '').toString().trim(); });
+      return out;
+    });
   });
 }
 
@@ -758,11 +780,12 @@ async function loadAllData() {
   showLoading(true);
   document.getElementById('btn-refresh').disabled = true;
 
-  const [jiraRes, riscoRes, npsRes, cndRes, colabRes, implRes, implIssuesRes] = await Promise.allSettled([
+  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
     fetchSheet('NPS_Calculado'),
-    fetchCND(),
+    fetchCNDEstadual(),
+    fetchCNDFederal(),
     fetchSheet('Colaboradores'),
     fetchSheet('Jira_Implantacoes'),
     fetchSheet('Jira_Implantacoes_Issues'),
@@ -777,8 +800,14 @@ async function loadAllData() {
   if (npsRes.status === 'fulfilled')   state.nps   = npsRes.value;
   else { console.warn('NPS:', npsRes.reason?.message); state.nps = []; }
 
-  if (cndRes.status === 'fulfilled')   state.cnd   = cndRes.value;
-  else { console.warn('CND:', cndRes.reason?.message); state.cnd = []; }
+  if (cndEstRes.status === 'fulfilled') state.cndEstadual = cndEstRes.value;
+  else { console.warn('CND Estadual:', cndEstRes.reason?.message); state.cndEstadual = []; }
+
+  if (cndFedRes.status === 'fulfilled') state.cndFederal = cndFedRes.value;
+  else { console.warn('CND Federal:', cndFedRes.reason?.message); state.cndFederal = []; }
+
+  // Compatibilidade com KPIs legados (usa Estadual como referência geral)
+  state.cnd = state.cndEstadual;
 
   if (colabRes.status === 'fulfilled') state.colaboradores = colabRes.value;
   else { console.warn('Colaboradores:', colabRes.reason?.message); state.colaboradores = []; }
@@ -796,7 +825,7 @@ async function loadAllData() {
   const jiraTS = state.jira.find(r => r.atualizado_em)?.atualizado_em;
   document.getElementById('sync-jira').textContent = jiraTS
     ? new Date(jiraTS).toLocaleString('pt-BR') : (state.jira.length ? now : 'Indisponível');
-  document.getElementById('sync-cnd').textContent = state.cnd.length ? now : 'Indisponível';
+  document.getElementById('sync-cnd').textContent = (state.cndEstadual.length || state.cndFederal.length) ? now : 'Indisponível';
   const implTS = state.implantacoes.find(r => r.atualizado_em)?.atualizado_em;
   document.getElementById('sync-impl').textContent = implTS
     ? new Date(implTS).toLocaleString('pt-BR') : (state.implantacoes.length ? now : 'Indisponível');
@@ -818,11 +847,11 @@ function updateKPIs() {
   document.getElementById('kpi-chamados-sub').textContent =
     state.jira.length ? `Em ${municipiosJira.length} municípios` : 'Dados indisponíveis';
 
-  // CND
-  const comCND = state.cnd.filter(r => r.statusAtual === 'Com CND').length;
-  document.getElementById('kpi-cnd').textContent = state.cnd.length ? comCND : '—';
+  // CND — KPI usa certidão ESTADUAL mais recente (periodo3)
+  const comCND = state.cndEstadual.filter(r => r.periodo3 === 'Com CND').length;
+  document.getElementById('kpi-cnd').textContent = state.cndEstadual.length ? comCND : '—';
   document.getElementById('kpi-cnd-sub').textContent =
-    state.cnd.length ? `de ${state.cnd.length} municípios` : 'Dados indisponíveis';
+    state.cndEstadual.length ? `de ${state.cndEstadual.length} entidades (Estadual)` : 'Dados indisponíveis';
 
   // Risco
   const emRisco = state.risco.filter(r => r.risco === 'Alto' || r.risco === 'Médio').length;
@@ -1134,122 +1163,274 @@ function renderChamadosPorVertical() {
 }
 
 // ============================================================
-// VIEW 3 — CND
+// VIEW 3 — CND (sub-abas Estadual + Federal)
 // ============================================================
-function renderCND() {
-  ['chart-cnd-p1', 'chart-cnd-p2', 'chart-2'].forEach(id => destroyChart(id));
-  const tableDiv = document.getElementById('cnd-table');
 
-  if (!state.cnd.length) {
-    ['chart-cnd-p1','chart-cnd-p2','chart-2'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) unavailable(el.parentElement, 'Dados CND indisponíveis.');
-    });
+// Helper genérico: donut "Com/Sem CND" com % centralizado
+function makeCNDDonutGeneric(canvasId, comCount, semCount, opts) {
+  opts = opts || {};
+  const com = comCount, sem = semCount;
+  const total = com + sem;
+  const pct = total ? Math.round(com / total * 100) : 0;
+  const highlight = !!opts.highlight;
+
+  charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type: 'doughnut',
+    data: {
+      labels: ['Com CND', 'Sem CND'],
+      datasets: [{
+        data: [com, sem],
+        backgroundColor: ['#276749', '#C53030'],
+        borderWidth: highlight ? 0 : 2,
+        borderColor: '#fff'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} (${total ? Math.round(ctx.parsed/total*100) : 0}%)` } }
+      }
+    },
+    plugins: [{
+      id: 'center-text-' + canvasId,
+      afterDraw(chart) {
+        const { ctx, chartArea: { width, height, left, top } } = chart;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const cx = left + width / 2, cy = top + height / 2;
+        ctx.font = 'bold ' + (highlight ? 24 : 20) + 'px system-ui';
+        ctx.fillStyle = '#1A202C';
+        ctx.fillText(pct + '%', cx, cy - 6);
+        ctx.font = '10px system-ui';
+        ctx.fillStyle = '#718096';
+        ctx.fillText(opts.subText || 'com CND', cx, cy + 11);
+        ctx.restore();
+      }
+    }]
+  });
+  return { com, sem, total, pct };
+}
+
+// Alterna sub-aba CND (Estadual/Federal)
+function switchCNDSubTab(tab) {
+  state.cndSubTab = tab;
+  const paneE = document.getElementById('cnd-pane-estadual');
+  const paneF = document.getElementById('cnd-pane-federal');
+  const btnE  = document.getElementById('cnd-sub-estadual');
+  const btnF  = document.getElementById('cnd-sub-federal');
+  const activeStyle   = 'color:var(--accent);border-bottom-color:var(--accent)';
+  const inactiveStyle = 'color:var(--text-muted);border-bottom-color:transparent';
+  if (tab === 'federal') {
+    paneE.style.display = 'none'; paneF.style.display = '';
+    btnE.setAttribute('style', btnE.getAttribute('style').replace(/color:[^;]+;border-bottom-color:[^;]+/, inactiveStyle));
+    btnF.setAttribute('style', btnF.getAttribute('style').replace(/color:[^;]+;border-bottom-color:[^;]+/, activeStyle));
+  } else {
+    paneE.style.display = ''; paneF.style.display = 'none';
+    btnE.setAttribute('style', btnE.getAttribute('style').replace(/color:[^;]+;border-bottom-color:[^;]+/, activeStyle));
+    btnF.setAttribute('style', btnF.getAttribute('style').replace(/color:[^;]+;border-bottom-color:[^;]+/, inactiveStyle));
+  }
+  renderCND();
+}
+
+function renderCND() {
+  // Destroi charts existentes (tanto estadual quanto federal)
+  ['cnd-est-p1','cnd-est-p2','cnd-est-p3'].forEach(id => destroyChart(id));
+  for (let i = 0; i < 12; i++) destroyChart('cnd-fed-m' + i);
+
+  // Destaque visual das sub-abas no primeiro render
+  const btnE = document.getElementById('cnd-sub-estadual');
+  const btnF = document.getElementById('cnd-sub-federal');
+  if (btnE && btnF && !btnE.getAttribute('data-styled')) {
+    btnE.setAttribute('data-styled', '1');
+    const isEst = state.cndSubTab !== 'federal';
+    btnE.style.color = isEst ? 'var(--accent)' : 'var(--text-muted)';
+    btnE.style.borderBottomColor = isEst ? 'var(--accent)' : 'transparent';
+    btnF.style.color = !isEst ? 'var(--accent)' : 'var(--text-muted)';
+    btnF.style.borderBottomColor = !isEst ? 'var(--accent)' : 'transparent';
+  }
+
+  if (state.cndSubTab === 'federal') renderCNDFederal();
+  else renderCNDEstadual();
+}
+
+// ─── Estadual (e-Sfinge SC): 3 certidões quadrimestrais ────────────────
+function renderCNDEstadual() {
+  const donutsDiv = document.getElementById('cnd-estadual-donuts');
+  const tableDiv  = document.getElementById('cnd-estadual-table');
+
+  if (!state.cndEstadual.length) {
+    donutsDiv.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted)">Dados CND Estadual indisponíveis.</div>';
     tableDiv.innerHTML = '';
     return;
   }
 
-  // Helper: cria um donut CND para um período e registra no map de charts
-  function makeCNDDonut(canvasId, periodoKey, label) {
-    const com   = state.cnd.filter(r => r[periodoKey] === 'Com CND').length;
-    const sem   = state.cnd.filter(r => r[periodoKey] === 'Sem CND').length;
-    const total = com + sem;
-    const pct   = total ? Math.round(com / total * 100) : 0;
-    const isAtual = canvasId === 'chart-2';
+  // Labels vêm da própria planilha (dinâmico por ano)
+  const lab1 = state.cndEstadual[0].p1_label || 'Período 1';
+  const lab2 = state.cndEstadual[0].p2_label || 'Período 2';
+  const lab3 = state.cndEstadual[0].p3_label || 'Período 3';
 
-    charts[canvasId] = new Chart(document.getElementById(canvasId), {
-      type: 'doughnut',
-      data: {
-        labels: ['Com CND', 'Sem CND'],
-        datasets: [{
-          data: [com, sem],
-          backgroundColor: ['#276749', '#C53030'],
-          borderWidth: isAtual ? 0 : 2,
-          borderColor: '#fff'
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '65%',
-        plugins: {
-          legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
-          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} (${total ? Math.round(ctx.parsed/total*100) : 0}%)` } }
-        }
-      },
-      plugins: [{
-        id: `center-text-${canvasId}`,
-        afterDraw(chart) {
-          const { ctx, chartArea: { width, height, left, top } } = chart;
-          ctx.save();
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          const cx = left + width / 2, cy = top + height / 2;
-          ctx.font = `bold ${isAtual ? 28 : 24}px system-ui`;
-          ctx.fillStyle = '#1A202C';
-          ctx.fillText(`${pct}%`, cx, cy - 8);
-          ctx.font = '11px system-ui';
-          ctx.fillStyle = '#718096';
-          ctx.fillText('com CND', cx, cy + 13);
-          ctx.restore();
-        }
-      }]
-    });
-    return { com, sem, total, pct };
-  }
+  donutsDiv.innerHTML = `
+    <div>
+      <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 1</div>
+      <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">${lab1}</div>
+      <div class="chart-wrap short"><canvas id="cnd-est-p1"></canvas></div>
+    </div>
+    <div>
+      <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 2</div>
+      <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">${lab2}</div>
+      <div class="chart-wrap short"><canvas id="cnd-est-p2"></canvas></div>
+    </div>
+    <div>
+      <div style="text-align:center;font-size:.78rem;font-weight:700;color:var(--accent);margin-bottom:2px">Período 3 — Atual ★</div>
+      <div style="text-align:center;font-size:.72rem;color:var(--accent);margin-bottom:6px">${lab3}</div>
+      <div class="chart-wrap short"><canvas id="cnd-est-p3"></canvas></div>
+    </div>`;
 
-  // Labels com datas reais dos períodos
-  const PERIODO_DATAS = [
-    { key: 'periodo1', label: 'Período 1', data: '06/06 – 06/10/2025' },
-    { key: 'periodo2', label: 'Período 2', data: '06/10/2025 – 06/02/2026' },
-    { key: 'periodo3', label: 'Período 3 (atual) ★', data: '06/02 – 06/06/2026', destaque: true },
-  ];
+  const count = (key, val) => state.cndEstadual.filter(r => r[key] === val).length;
+  makeCNDDonutGeneric('cnd-est-p1', count('periodo1','Com CND'), count('periodo1','Sem CND'), {});
+  makeCNDDonutGeneric('cnd-est-p2', count('periodo2','Com CND'), count('periodo2','Sem CND'), {});
+  makeCNDDonutGeneric('cnd-est-p3', count('periodo3','Com CND'), count('periodo3','Sem CND'), { highlight: true });
 
-  const p1 = makeCNDDonut('chart-cnd-p1', 'periodo1');
-  const p2 = makeCNDDonut('chart-cnd-p2', 'periodo2');
-  const p3 = makeCNDDonut('chart-2',       'periodo3');
-
-  // Tabela de municípios — ordenada: Sem CND no P3 primeiro, depois P2, depois P1, depois alfa
-  const munOrdenados = [...state.cnd].sort((a, b) => {
+  // Ordenação: pior situação primeiro (Sem no P3 > P2 > P1)
+  const ordenados = [...state.cndEstadual].sort((a, b) => {
     const score = r => (r.periodo3 === 'Sem CND' ? 4 : 0) + (r.periodo2 === 'Sem CND' ? 2 : 0) + (r.periodo1 === 'Sem CND' ? 1 : 0);
     const diff = score(b) - score(a);
     return diff !== 0 ? diff : a.municipio.localeCompare(b.municipio, 'pt-BR');
   });
 
-  const badgeCND = v =>
-    v === 'Com CND'
-      ? `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✓ Com CND</span>`
-      : `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✗ Sem CND</span>`;
+  const badge = v =>
+    v === 'Com CND' ? `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✓ Com CND</span>`
+    : v === 'Sem CND' ? `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✗ Sem CND</span>`
+    : `<span style="color:#A0AEC0;font-size:.78rem">—</span>`;
 
-  const munRows = munOrdenados.map((r, i) => {
+  const rows = ordenados.map((r, i) => {
     const bg = i % 2 === 0 ? '#fff' : '#F8FAFC';
+    const atraso = r.meses_atraso && parseInt(r.meses_atraso) > 0 ? `<span style="color:#C53030;font-weight:700">${r.meses_atraso}</span>` : (r.meses_atraso || '0');
     return `<tr style="background:${bg}">
       <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${r.municipio}</td>
-      <td style="padding:8px 12px;text-align:center">${badgeCND(r.periodo1)}</td>
-      <td style="padding:8px 12px;text-align:center">${badgeCND(r.periodo2)}</td>
-      <td style="padding:8px 12px;text-align:center">${badgeCND(r.periodo3)}</td>
+      <td style="padding:8px 12px;font-size:.76rem;color:var(--text-muted)">${r.entidade}</td>
+      <td style="padding:8px 12px;text-align:center;font-size:.78rem">${atraso}</td>
+      <td style="padding:8px 12px;text-align:center">${badge(r.periodo1)}</td>
+      <td style="padding:8px 12px;text-align:center">${badge(r.periodo2)}</td>
+      <td style="padding:8px 12px;text-align:center">${badge(r.periodo3)}</td>
     </tr>`;
   }).join('');
 
-  // Monta o cabeçalho com datas reais
-  const thData = (label, data, destaque) =>
-    `<th style="padding:10px 12px;font-size:.76rem;white-space:nowrap;${destaque ? 'color:#90CDF4' : ''}">
-      ${label}<br><span style="font-weight:400;font-size:.68rem;opacity:.85">${data}</span>
-    </th>`;
-
   tableDiv.innerHTML = `
-    <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">Situação por Município</h4>
+    <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">Situação Estadual por Entidade</h4>
     <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
     <table style="width:100%;border-collapse:collapse;font-family:inherit">
       <thead>
         <tr style="background:var(--header-bg);color:#fff;text-align:center">
-          <th style="padding:10px 12px;text-align:left;font-size:.76rem;white-space:nowrap">Município</th>
-          ${thData('Período 1','06/06 – 06/10/2025', false)}
-          ${thData('Período 2','06/10/2025 – 06/02/2026', false)}
-          ${thData('Período 3 ★','06/02 – 06/06/2026', true)}
+          <th style="padding:10px 12px;text-align:left;font-size:.76rem">Município</th>
+          <th style="padding:10px 12px;text-align:left;font-size:.76rem">Entidade</th>
+          <th style="padding:10px 12px;font-size:.76rem">Meses atraso</th>
+          <th style="padding:10px 12px;font-size:.76rem">${lab1}</th>
+          <th style="padding:10px 12px;font-size:.76rem">${lab2}</th>
+          <th style="padding:10px 12px;font-size:.76rem;color:#90CDF4">${lab3} ★</th>
         </tr>
       </thead>
-      <tbody>${munRows}</tbody>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>`;
+}
+
+// ─── Federal (SICONFI): 1 donut por mês + heatmap por município ────────
+function renderCNDFederal() {
+  const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const MESES_LBL = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const donutsDiv = document.getElementById('cnd-federal-donuts');
+  const tableDiv  = document.getElementById('cnd-federal-table');
+
+  if (!state.cndFederal.length) {
+    donutsDiv.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted)">Dados CND Federal indisponíveis.</div>';
+    tableDiv.innerHTML = '';
+    return;
+  }
+
+  // Classifica status: 'Enviado' = Com CND; 'Com problema' ou 'Não Enviado' = Sem CND; vazio = n/d
+  const classify = (v) => {
+    const s = (v || '').toString().toLowerCase();
+    if (!s) return 'nd';
+    if (s.includes('enviado') && !s.includes('não') && !s.includes('nao')) return 'com';
+    return 'sem'; // 'Com problema' e 'Não Enviado' contam como "Sem"
+  };
+
+  // Mês atual (1..12) para destacar
+  const mesAtual = new Date().getMonth(); // 0..11
+
+  donutsDiv.innerHTML = MESES.map((_, i) =>
+    `<div>
+      <div style="text-align:center;font-size:.78rem;font-weight:${i === mesAtual ? 700 : 600};color:${i === mesAtual ? 'var(--accent)' : 'var(--text-muted)'};margin-bottom:6px">
+        ${MESES_LBL[i]}${i === mesAtual ? ' ★' : ''}
+      </div>
+      <div class="chart-wrap short" style="height:140px"><canvas id="cnd-fed-m${i}"></canvas></div>
+    </div>`
+  ).join('');
+
+  MESES.forEach((m, i) => {
+    const com = state.cndFederal.filter(r => classify(r[m]) === 'com').length;
+    const sem = state.cndFederal.filter(r => classify(r[m]) === 'sem').length;
+    makeCNDDonutGeneric('cnd-fed-m' + i, com, sem, { highlight: i === mesAtual, subText: 'enviado' });
+  });
+
+  // Tabela heatmap: uma linha por município, 12 colunas de meses
+  const cellColor = (v) => {
+    const k = classify(v);
+    if (k === 'com') return { bg: '#C6F6D5', color: '#276749', tx: '✓' };
+    if (k === 'sem') {
+      const s = (v || '').toLowerCase();
+      if (s.includes('problema')) return { bg: '#FEEBC8', color: '#9C4221', tx: '⚠' };
+      return { bg: '#FED7D7', color: '#C53030', tx: '✗' };
+    }
+    return { bg: '#F7FAFC', color: '#A0AEC0', tx: '—' };
+  };
+
+  // Ordena: mais "Sem/Problema" no mês atual primeiro
+  const ordenados = [...state.cndFederal].sort((a, b) => {
+    const score = r => MESES.reduce((acc, m, idx) => acc + (classify(r[m]) === 'sem' ? (idx === mesAtual ? 10 : 1) : 0), 0);
+    const diff = score(b) - score(a);
+    return diff !== 0 ? diff : a.municipio.localeCompare(b.municipio, 'pt-BR');
+  });
+
+  const rows = ordenados.map((r, idx) => {
+    const bg = idx % 2 === 0 ? '#fff' : '#F8FAFC';
+    const cells = MESES.map(m => {
+      const c = cellColor(r[m]);
+      return `<td title="${(r[m] || '').replace(/"/g,'&quot;')}" style="padding:6px;text-align:center;background:${c.bg};color:${c.color};font-weight:700;font-size:.82rem">${c.tx}</td>`;
+    }).join('');
+    return `<tr style="background:${bg}">
+      <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${r.municipio}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  const ths = MESES_LBL.map((l, i) =>
+    `<th style="padding:8px 4px;font-size:.74rem;${i === mesAtual ? 'color:#90CDF4' : ''}">${l}${i === mesAtual ? ' ★' : ''}</th>`
+  ).join('');
+
+  tableDiv.innerHTML = `
+    <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">
+      Entregas Mensais SICONFI por Município
+      <span style="font-weight:400;text-transform:none;color:var(--text-muted);font-size:.78rem">
+        &nbsp;•&nbsp; <span style="color:#276749">✓ Enviado</span>
+        &nbsp;<span style="color:#9C4221">⚠ Com problema</span>
+        &nbsp;<span style="color:#C53030">✗ Não Enviado</span>
+      </span>
+    </h4>
+    <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <table style="width:100%;border-collapse:collapse;font-family:inherit">
+      <thead>
+        <tr style="background:var(--header-bg);color:#fff;text-align:center">
+          <th style="padding:10px 12px;text-align:left;font-size:.76rem">Município</th>
+          ${ths}
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
     </table>
     </div>`;
 }
