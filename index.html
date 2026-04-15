@@ -749,8 +749,8 @@ function fetchCNDEstadual() {
       return '';
     };
     return rows.filter(r => r.municipio).map(r => ({
-      municipio:    r.municipio,
-      entidade:     r.entidade || '',
+      municipio:    titleCaseMun(r.municipio),
+      entidade:     titleCaseMun(r.entidade || ''),
       meses_atraso: r.meses_atraso || '',
       tipo_atraso:  r.tipo_atraso || '',
       status_fonte: r.status_fonte || '',
@@ -769,7 +769,7 @@ function fetchCNDFederal() {
   const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   return fetchSheet('CND_Federal').then(rows => {
     return rows.filter(r => r.municipio).map(r => {
-      const out = { municipio: r.municipio, tipo: r.tipo || '', status_fonte: r.status_fonte || '' };
+      const out = { municipio: titleCaseMun(r.municipio), tipo: r.tipo || '', status_fonte: r.status_fonte || '' };
       MESES.forEach(m => { out[m] = (r[m] || '').toString().trim(); });
       return out;
     });
@@ -1218,15 +1218,49 @@ function makeCNDDonutGeneric(canvasId, comCount, semCount, opts) {
   return { com, sem, total, pct };
 }
 
-// Banner "Fonte atualizada em DD/MM/YYYY" no topo de cada sub-aba CND
+// Formata qualquer representação de data para dd/MM/yyyy HH:mm:ss
+// Aceita: Date JS string ("Fri Mar 27 2026..."), ISO, ou já formatado DD/MM/YYYY
+function formatDataFonte(raw) {
+  if (!raw) return '';
+  const s = raw.toString().trim();
+  // Já está no formato desejado → devolve como está
+  if (/^\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2}$/.test(s)) return s;
+  // Só data DD/MM/YYYY sem hora → adiciona 00:00:00
+  const mDate = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (mDate) {
+    const dd = mDate[1].padStart(2,'0'), mm = mDate[2].padStart(2,'0');
+    let yy = mDate[3]; if (yy.length === 2) yy = '20' + yy;
+    return `${dd}/${mm}/${yy} 00:00:00`;
+  }
+  // Qualquer outra coisa parseável (JS Date toString, ISO, etc.)
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const pad = n => String(n).padStart(2,'0');
+    return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+  return s; // fallback: mostra como veio
+}
+
+// Title Case para município (com preposições minúsculas) — aplicado no client como defesa
+function titleCaseMun(s) {
+  if (!s) return '';
+  const lower = { 'de':1,'da':1,'do':1,'dos':1,'das':1,'e':1,'a':1,'o':1 };
+  return s.toString().toLowerCase().split(/\s+/).filter(Boolean).map((w, i) => {
+    if (i > 0 && lower[w]) return w;
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }).join(' ');
+}
+
+// Banner "Fonte atualizada em DD/MM/YYYY HH:MM:SS" no topo de cada sub-aba CND
 function renderCNDStatusFonte(containerId, dataFonte, nomeFonte) {
   const el = document.getElementById(containerId);
   if (!el) return;
   if (!dataFonte) { el.innerHTML = ''; return; }
+  const display = formatDataFonte(dataFonte);
   el.innerHTML = `
     <div style="display:inline-flex;align-items:center;gap:8px;background:#EDF2F7;border-left:3px solid #2B6CB0;padding:8px 14px;border-radius:6px;font-size:.82rem;color:#2D3748">
       <span style="font-size:1rem">📅</span>
-      <span><strong>Fonte ${nomeFonte} atualizada em:</strong> ${dataFonte}</span>
+      <span><strong>Fonte ${nomeFonte} atualizada em:</strong> ${display}</span>
     </div>`;
 }
 

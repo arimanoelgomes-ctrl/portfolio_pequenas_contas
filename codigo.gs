@@ -258,12 +258,39 @@ function _isMunicipioPortfolio(nome) {
   return !!PORTFOLIO_MUNICIPIOS_SET[_normStr(nome)];
 }
 
-// Extrai "Status: DD/MM/YYYY" da célula A1 das planilhas CND (SICONFI/e-Sfinge)
+// Formata nome de município em Title Case com preposições em minúsculo
+// Ex.: "SÃO JOÃO DO OESTE" → "São João do Oeste"
+function _titleCaseMun(s) {
+  if (s === null || s === undefined) return '';
+  const lower = { 'de':1,'da':1,'do':1,'dos':1,'das':1,'e':1,'a':1,'o':1,'à':1 };
+  return s.toString().toLowerCase().split(/\s+/).filter(Boolean).map((w, i) => {
+    if (i > 0 && lower[w]) return w;
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }).join(' ');
+}
+
+// Extrai data de atualização da fonte da célula A1 das planilhas CND (SICONFI/e-Sfinge)
+// Formata como dd/MM/yyyy HH:mm:ss. A1 pode ser um Date (Google Sheets) ou string.
 function _extractStatusFonte(values) {
   if (!values || !values.length || !values[0] || !values[0].length) return '';
-  const a1 = (values[0][0] === null || values[0][0] === undefined ? '' : values[0][0].toString());
-  const m = a1.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
-  return m ? m[1] : '';
+  const a1 = values[0][0];
+  const tz = Session.getScriptTimeZone() || 'America/Sao_Paulo';
+
+  // 1) Se for objeto Date → formata direto
+  if (a1 instanceof Date && !isNaN(a1.getTime())) {
+    return Utilities.formatDate(a1, tz, 'dd/MM/yyyy HH:mm:ss');
+  }
+
+  // 2) Se for string → tenta extrair DD/MM/YYYY (com hora opcional)
+  const s = (a1 === null || a1 === undefined ? '' : a1.toString());
+  const m = s.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/);
+  if (m) {
+    const datePart = m[1];
+    let timePart = m[2] || '00:00:00';
+    if (timePart.length === 5) timePart += ':00';
+    return datePart + ' ' + timePart;
+  }
+  return '';
 }
 
 // ────────────────────────────────────────────────────────────
@@ -301,7 +328,7 @@ function fetchAndStoreCNDFederal() {
 
   const writeRows = filtrados.map(r => {
     const out = [
-      String(r[iMun]  || '').trim(),
+      _titleCaseMun(r[iMun]),
       iTipo >= 0 ? String(r[iTipo] || '').trim() : '',
       statusFonte,
     ];
@@ -385,8 +412,8 @@ function fetchAndStoreCNDEstadual() {
   Logger.log('  e-Sfinge: status fonte (A1) = ' + statusFonte);
 
   const writeRows = filtrados.map(r => [
-    String(r[iMun] || '').trim(),
-    iEnt >= 0 ? String(r[iEnt] || '').trim() : '',
+    _titleCaseMun(r[iMun]),
+    iEnt >= 0 ? _titleCaseMun(r[iEnt]) : '',
     iMesesAtraso >= 0 ? String(r[iMesesAtraso] || '').trim() : '',
     iTipoAtraso  >= 0 ? String(r[iTipoAtraso]  || '').trim() : '',
     statusFonte,
