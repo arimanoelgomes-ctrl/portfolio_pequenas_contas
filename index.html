@@ -586,14 +586,14 @@
       <!-- Estadual: 3 donuts (certidões quadrimestrais) + tabela -->
       <div id="cnd-pane-estadual">
         <div id="cnd-estadual-status" style="margin-bottom:12px"></div>
-        <div id="cnd-estadual-donuts" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start"></div>
+        <div id="cnd-estadual-donuts" style="display:flex;justify-content:center;gap:20px;align-items:start"></div>
         <div id="cnd-estadual-table" style="margin-top:24px"></div>
       </div>
 
       <!-- Federal: donuts por mês + tabela heatmap -->
       <div id="cnd-pane-federal" style="display:none">
         <div id="cnd-federal-status" style="margin-bottom:12px"></div>
-        <div id="cnd-federal-donuts" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-items:start"></div>
+        <div id="cnd-federal-donuts" style="display:flex;justify-content:center;gap:20px;align-items:start"></div>
         <div id="cnd-federal-table" style="margin-top:24px"></div>
       </div>
     </div>
@@ -1327,7 +1327,7 @@ function toggleCndGroup(grpId) {
   if (arrow) arrow.style.transform = visible ? 'rotate(0deg)' : 'rotate(90deg)';
 }
 
-// ─── Estadual (e-Sfinge SC): 3 certidões quadrimestrais ────────────────
+// ─── Estadual (e-Sfinge SC): somente período atual ────────────────
 function renderCNDEstadual() {
   const donutsDiv = document.getElementById('cnd-estadual-donuts');
   const tableDiv  = document.getElementById('cnd-estadual-table');
@@ -1339,83 +1339,72 @@ function renderCNDEstadual() {
     return;
   }
 
-  // Labels vêm da própria planilha (dinâmico por ano)
-  const lab1 = state.cndEstadual[0].p1_label || 'Período 1';
-  const lab2 = state.cndEstadual[0].p2_label || 'Período 2';
-  const lab3 = state.cndEstadual[0].p3_label || 'Período 3';
-  const statusFonte = state.cndEstadual[0].status_fonte || '';
+  // Detectar o período atual: último período cujo início já passou
+  const labels = [
+    { key: 'periodo1', label: state.cndEstadual[0].p1_label || 'Período 1' },
+    { key: 'periodo2', label: state.cndEstadual[0].p2_label || 'Período 2' },
+    { key: 'periodo3', label: state.cndEstadual[0].p3_label || 'Período 3' },
+  ];
+  const parseStartDate = (lbl) => {
+    const m = lbl.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (!m) return null;
+    const yy = m[3].length === 2 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
+    return new Date(yy, parseInt(m[2]) - 1, parseInt(m[1]));
+  };
+  const hoje = new Date();
+  let curIdx = 0;
+  labels.forEach((p, i) => {
+    const d = parseStartDate(p.label);
+    if (d && d <= hoje) curIdx = i;
+  });
+  const curKey   = labels[curIdx].key;
+  const curLabel = labels[curIdx].label;
 
-  // Badge da última atualização da fonte (e-Sfinge TCE/SC)
+  const statusFonte = state.cndEstadual[0].status_fonte || '';
   renderCNDStatusFonte('cnd-estadual-status', statusFonte, 'e-Sfinge TCE/SC');
 
-  donutsDiv.innerHTML = `
-    <div>
-      <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 1</div>
-      <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">${lab1}</div>
-      <div class="chart-wrap short"><canvas id="cnd-est-p1"></canvas></div>
-    </div>
-    <div>
-      <div style="text-align:center;font-size:.78rem;font-weight:600;color:var(--text-muted);margin-bottom:2px">Período 2</div>
-      <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:6px">${lab2}</div>
-      <div class="chart-wrap short"><canvas id="cnd-est-p2"></canvas></div>
-    </div>
-    <div>
-      <div style="text-align:center;font-size:.78rem;font-weight:700;color:var(--accent);margin-bottom:2px">Período 3 — Atual ★</div>
-      <div style="text-align:center;font-size:.72rem;color:var(--accent);margin-bottom:6px">${lab3}</div>
-      <div class="chart-wrap short"><canvas id="cnd-est-p3"></canvas></div>
-    </div>`;
-
-  // Donuts contam por MUNICÍPIO (não por entidade)
-  // Se qualquer entidade do município tem "Sem CND" → município "Sem CND"
-  const munGrp = {};
-  state.cndEstadual.forEach(r => {
-    if (!munGrp[r.municipio]) munGrp[r.municipio] = [];
-    munGrp[r.municipio].push(r);
-  });
-  const munList = Object.values(munGrp);
-  const countMun = (key) => {
-    const com = munList.filter(items => !items.some(r => r[key] === 'Sem CND') && items.some(r => r[key] === 'Com CND')).length;
-    const sem = munList.filter(items => items.some(r => r[key] === 'Sem CND')).length;
-    return { com, sem };
-  };
-  const p1 = countMun('periodo1'), p2 = countMun('periodo2'), p3 = countMun('periodo3');
-  makeCNDDonutGeneric('cnd-est-p1', p1.com, p1.sem, {});
-  makeCNDDonutGeneric('cnd-est-p2', p2.com, p2.sem, {});
-  makeCNDDonutGeneric('cnd-est-p3', p3.com, p3.sem, { highlight: true });
-
-  // Ordenação: município ASC → entidade ASC
+  // Agrupar por município
   const ordenados = [...state.cndEstadual].sort((a, b) => {
     const mdiff = a.municipio.localeCompare(b.municipio, 'pt-BR');
     if (mdiff !== 0) return mdiff;
     return (a.entidade || '').localeCompare(b.entidade || '', 'pt-BR');
   });
-
-  // Badge para MUNICÍPIO (Com CND / Sem CND)
-  const badgeMun = v =>
-    v === 'Com CND' ? `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✓ Com CND</span>`
-    : v === 'Sem CND' ? `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✗ Sem CND</span>`
-    : `<span style="color:#A0AEC0;font-size:.78rem">—</span>`;
-
-  // Badge para ENTIDADE (Sem Pendência / Com Pendência)
-  const badgeEnt = v =>
-    v === 'Com CND' ? `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">✓ Sem Pendência</span>`
-    : v === 'Sem CND' ? `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">✗ Com Pendência</span>`
-    : `<span style="color:#A0AEC0;font-size:.74rem">—</span>`;
-
-  // Status do município: se qualquer entidade tem pendência → Sem CND
-  const munStatus = (items, key) => {
-    if (items.some(r => r[key] === 'Sem CND')) return 'Sem CND';
-    if (items.some(r => r[key] === 'Com CND')) return 'Com CND';
-    return '';
-  };
-
-  // Agrupar por município
   const grupos = {};
   ordenados.forEach(r => {
     if (!grupos[r.municipio]) grupos[r.municipio] = [];
     grupos[r.municipio].push(r);
   });
   const munKeys = Object.keys(grupos).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const munList = Object.values(grupos);
+
+  // Donut único — por município
+  const comMun = munList.filter(items => !items.some(r => r[curKey] === 'Sem CND') && items.some(r => r[curKey] === 'Com CND')).length;
+  const semMun = munList.filter(items => items.some(r => r[curKey] === 'Sem CND')).length;
+
+  donutsDiv.innerHTML = `
+    <div style="max-width:220px;margin:0 auto">
+      <div style="text-align:center;font-size:.82rem;font-weight:700;color:var(--accent);margin-bottom:2px">Período Atual</div>
+      <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:8px">${curLabel}</div>
+      <div class="chart-wrap short"><canvas id="cnd-est-atual"></canvas></div>
+    </div>`;
+  makeCNDDonutGeneric('cnd-est-atual', comMun, semMun, { highlight: true });
+
+  // Badges
+  const badgeMun = v =>
+    v === 'Com CND' ? `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✓ Com CND</span>`
+    : v === 'Sem CND' ? `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✗ Sem CND</span>`
+    : `<span style="color:#A0AEC0;font-size:.78rem">—</span>`;
+
+  const badgeEnt = v =>
+    v === 'Com CND' ? `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">✓ Sem Pendência</span>`
+    : v === 'Sem CND' ? `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">✗ Com Pendência</span>`
+    : `<span style="color:#A0AEC0;font-size:.74rem">—</span>`;
+
+  const munStatusVal = (items) => {
+    if (items.some(r => r[curKey] === 'Sem CND')) return 'Sem CND';
+    if (items.some(r => r[curKey] === 'Com CND')) return 'Com CND';
+    return '';
+  };
 
   const rows = munKeys.map((mun, gi) => {
     const items = grupos[mun];
@@ -1425,21 +1414,17 @@ function renderCNDEstadual() {
     const maxAtraso = Math.max(...items.map(r => parseInt(r.meses_atraso) || 0));
     const atrasoMain = maxAtraso > 0 ? `<span style="color:#C53030;font-weight:700">${maxAtraso}</span>` : '0';
 
-    // Linha principal do município
     const arrow = hasMultiple ? `<span class="cnd-expand-arrow" id="arrow-${grpId}" style="display:inline-block;transition:transform .2s;margin-right:6px;font-size:.7rem;color:var(--text-muted)">▶</span>` : `<span style="display:inline-block;width:16px"></span>`;
     const cursor = hasMultiple ? 'cursor:pointer' : '';
     const onclick = hasMultiple ? `onclick="toggleCndGroup('${grpId}')"` : '';
 
-    // Se múltiplas entidades, mostra resumo com mini-badges; se única, mostra badges normais
     let mainRow;
     if (hasMultiple) {
       const countLabel = `<span style="font-size:.7rem;color:var(--text-muted);font-weight:400;margin-left:6px">(${items.length} entidades)</span>`;
       mainRow = `<tr style="background:${bg};${cursor}" ${onclick}>
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}${countLabel}</td>
         <td style="padding:8px 12px;text-align:center;font-size:.78rem">${atrasoMain}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(munStatus(items, 'periodo1'))}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(munStatus(items, 'periodo2'))}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(munStatus(items, 'periodo3'))}</td>
+        <td style="padding:8px 12px;text-align:center">${badgeMun(munStatusVal(items))}</td>
       </tr>`;
     } else {
       const r = items[0];
@@ -1447,21 +1432,16 @@ function renderCNDEstadual() {
       mainRow = `<tr style="background:${bg}">
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}</td>
         <td style="padding:8px 12px;text-align:center;font-size:.78rem">${atraso}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(r.periodo1)}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(r.periodo2)}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(r.periodo3)}</td>
+        <td style="padding:8px 12px;text-align:center">${badgeMun(r[curKey])}</td>
       </tr>`;
     }
 
-    // Sub-linhas das entidades (ocultas inicialmente)
     const subRows = hasMultiple ? items.map(r => {
       const atraso = r.meses_atraso && parseInt(r.meses_atraso) > 0 ? `<span style="color:#C53030;font-weight:700">${r.meses_atraso}</span>` : (r.meses_atraso || '0');
       return `<tr class="${grpId}" style="display:none;background:${gi % 2 === 0 ? '#F7FAFC' : '#EDF2F7'}">
         <td style="padding:4px 12px 4px 34px;font-size:.76rem;color:var(--text-muted);border-left:3px solid #CBD5E0">↳ ${r.entidade || ''}</td>
         <td style="padding:4px 12px;text-align:center;font-size:.76rem">${atraso}</td>
-        <td style="padding:4px 12px;text-align:center">${badgeEnt(r.periodo1)}</td>
-        <td style="padding:4px 12px;text-align:center">${badgeEnt(r.periodo2)}</td>
-        <td style="padding:4px 12px;text-align:center">${badgeEnt(r.periodo3)}</td>
+        <td style="padding:4px 12px;text-align:center">${badgeEnt(r[curKey])}</td>
       </tr>`;
     }).join('') : '';
 
@@ -1469,16 +1449,16 @@ function renderCNDEstadual() {
   }).join('');
 
   tableDiv.innerHTML = `
-    <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">Situação Estadual por Entidade</h4>
+    <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">
+      Situação CND Estadual — ${curLabel}
+    </h4>
     <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
     <table style="width:100%;border-collapse:collapse;font-family:inherit">
       <thead>
         <tr style="background:var(--header-bg);color:#fff;text-align:center">
           <th style="padding:10px 12px;text-align:left;font-size:.76rem">Município</th>
           <th style="padding:10px 12px;font-size:.76rem">Meses atraso</th>
-          <th style="padding:10px 12px;font-size:.76rem">${lab1}</th>
-          <th style="padding:10px 12px;font-size:.76rem">${lab2}</th>
-          <th style="padding:10px 12px;font-size:.76rem;color:#90CDF4">${lab3} ★</th>
+          <th style="padding:10px 12px;font-size:.76rem">Situação</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -1486,10 +1466,10 @@ function renderCNDEstadual() {
     </div>`;
 }
 
-// ─── Federal (SICONFI): 1 donut por mês + heatmap por município ────────
+// ─── Federal (SICONFI): somente mês atual ────────────────────────────
 function renderCNDFederal() {
   const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-  const MESES_LBL = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const MESES_LBL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const donutsDiv = document.getElementById('cnd-federal-donuts');
   const tableDiv  = document.getElementById('cnd-federal-table');
 
@@ -1500,89 +1480,74 @@ function renderCNDFederal() {
     return;
   }
 
-  // Badge da última atualização da fonte (SICONFI)
   renderCNDStatusFonte('cnd-federal-status', state.cndFederal[0].status_fonte || '', 'SICONFI');
 
-  // Classifica status em 3 categorias:
-  //  'com'    → Enviado (verde ✓)
-  //  'sem'    → Não Enviado (vermelho ✗)
-  //  'atraso' → qualquer outro texto (Com problema, Em Atraso, Vários problemas…) (laranja ⚠)
-  //  'nd'     → vazio
+  // Classifica status
   const classify = (v) => {
     const s = (v || '').toString().trim().toLowerCase();
     if (!s) return 'nd';
     const isNao = s.includes('não') || s.includes('nao');
     if (s.includes('enviado') && !isNao) return 'com';
-    // "Não Enviado" exato (sem outros textos concatenados tipo "- vários problemas")
     if (isNao && s.includes('enviado') && !s.includes('-') && !s.includes('problema') && !s.includes('atraso')) return 'sem';
     return 'atraso';
   };
 
-  // Mês atual (1..12) para destacar
+  // Mês atual
   const mesAtual = new Date().getMonth(); // 0..11
+  const mesKey   = MESES[mesAtual];
+  const mesLabel = MESES_LBL[mesAtual];
+  const anoAtual = new Date().getFullYear();
 
-  donutsDiv.innerHTML = MESES.map((_, i) =>
-    `<div>
-      <div style="text-align:center;font-size:.78rem;font-weight:${i === mesAtual ? 700 : 600};color:${i === mesAtual ? 'var(--accent)' : 'var(--text-muted)'};margin-bottom:6px">
-        ${MESES_LBL[i]}${i === mesAtual ? ' ★' : ''}
-      </div>
-      <div class="chart-wrap short" style="height:140px"><canvas id="cnd-fed-m${i}"></canvas></div>
-    </div>`
-  ).join('');
-
-  // Donuts contam por MUNICÍPIO: se qualquer entidade tem pendência → município "Sem CND"
-  const fedMunGrp = {};
-  state.cndFederal.forEach(r => {
-    if (!fedMunGrp[r.municipio]) fedMunGrp[r.municipio] = [];
-    fedMunGrp[r.municipio].push(r);
-  });
-  const fedMunList = Object.values(fedMunGrp);
-  MESES.forEach((m, i) => {
-    const com = fedMunList.filter(items => {
-      const vals = items.map(r => classify(r[m]));
-      return vals.every(v => v === 'com' || v === 'nd') && vals.some(v => v === 'com');
-    }).length;
-    const sem = fedMunList.filter(items => {
-      const vals = items.map(r => classify(r[m]));
-      return vals.some(v => v === 'sem' || v === 'atraso');
-    }).length;
-    makeCNDDonutGeneric('cnd-fed-m' + i, com, sem, { highlight: i === mesAtual, subText: 'com CND' });
-  });
-
-  // Cores para a LINHA DO MUNICÍPIO (Com CND / Sem CND)
-  const cellColorMun = (worst) => {
-    if (worst === 'com') return { bg: '#C6F6D5', color: '#276749', tx: '✓' };
-    if (worst === 'sem' || worst === 'atraso') return { bg: '#FED7D7', color: '#C53030', tx: '✗' };
-    return { bg: '#F7FAFC', color: '#A0AEC0', tx: '—' };
-  };
-
-  // Cores para SUB-LINHAS de entidade (detalhamento da pendência)
-  const cellColorEnt = (v) => {
-    const k = classify(v);
-    if (k === 'com')    return { bg: '#C6F6D5', color: '#276749', tx: '✓' };
-    if (k === 'sem')    return { bg: '#FED7D7', color: '#C53030', tx: '✗' };
-    if (k === 'atraso') return { bg: '#FEEBC8', color: '#9C4221', tx: '⚠' };
-    return { bg: '#F7FAFC', color: '#A0AEC0', tx: '—' };
-  };
-
-  // Ordena: município ASC → entidade ASC
+  // Agrupar por município
   const ordenados = [...state.cndFederal].sort((a, b) => {
     const mdiff = a.municipio.localeCompare(b.municipio, 'pt-BR');
     if (mdiff !== 0) return mdiff;
     return (a.tipo || '').localeCompare(b.tipo || '', 'pt-BR');
   });
-
-  // Agrupar por município
   const grupos = {};
   ordenados.forEach(r => {
     if (!grupos[r.municipio]) grupos[r.municipio] = [];
     grupos[r.municipio].push(r);
   });
   const munKeys = Object.keys(grupos).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const munList = Object.values(grupos);
 
-  // Pior status do grupo por mês (para linha principal)
-  const worstClassify = (items, m) => {
-    const vals = items.map(r => classify(r[m]));
+  // Donut único — por município no mês atual
+  const comMun = munList.filter(items => {
+    const vals = items.map(r => classify(r[mesKey]));
+    return vals.every(v => v === 'com' || v === 'nd') && vals.some(v => v === 'com');
+  }).length;
+  const semMun = munList.filter(items => {
+    const vals = items.map(r => classify(r[mesKey]));
+    return vals.some(v => v === 'sem' || v === 'atraso');
+  }).length;
+
+  donutsDiv.innerHTML = `
+    <div style="max-width:220px;margin:0 auto">
+      <div style="text-align:center;font-size:.82rem;font-weight:700;color:var(--accent);margin-bottom:2px">Mês Atual</div>
+      <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:8px">${mesLabel} ${anoAtual}</div>
+      <div class="chart-wrap short"><canvas id="cnd-fed-atual"></canvas></div>
+    </div>`;
+  makeCNDDonutGeneric('cnd-fed-atual', comMun, semMun, { highlight: true, subText: 'com CND' });
+
+  // Badges — município
+  const badgeMun = (worst) => {
+    if (worst === 'com') return `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✓ Com CND</span>`;
+    if (worst === 'sem' || worst === 'atraso') return `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✗ Sem CND</span>`;
+    return `<span style="color:#A0AEC0;font-size:.78rem">—</span>`;
+  };
+
+  // Badges — entidade (detalhe da pendência)
+  const badgeEnt = (v) => {
+    const k = classify(v);
+    if (k === 'com')    return `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">✓ Sem Pendência</span>`;
+    if (k === 'atraso') return `<span style="background:#FEEBC8;color:#9C4221;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">⚠ Com Problema</span>`;
+    if (k === 'sem')    return `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">✗ Não Enviado</span>`;
+    return `<span style="color:#A0AEC0;font-size:.74rem">—</span>`;
+  };
+
+  const munStatusVal = (items) => {
+    const vals = items.map(r => classify(r[mesKey]));
     if (vals.includes('atraso')) return 'atraso';
     if (vals.includes('sem'))    return 'sem';
     if (vals.includes('com'))    return 'com';
@@ -1602,60 +1567,38 @@ function renderCNDFederal() {
     let mainRow;
     if (hasMultiple) {
       const countLabel = `<span style="font-size:.7rem;color:var(--text-muted);font-weight:400;margin-left:6px">(${items.length} entidades)</span>`;
-      const mainCells = MESES.map(m => {
-        const c = cellColorMun(worstClassify(items, m));
-        return `<td style="padding:6px;text-align:center;background:${c.bg};color:${c.color};font-weight:700;font-size:.82rem">${c.tx}</td>`;
-      }).join('');
       mainRow = `<tr style="background:${bg};${cursor}" ${onclick}>
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}${countLabel}</td>
-        ${mainCells}
+        <td style="padding:8px 12px;text-align:center">${badgeMun(munStatusVal(items))}</td>
       </tr>`;
     } else {
       const r = items[0];
-      const cells = MESES.map(m => {
-        const c = cellColorMun(classify(r[m]));
-        return `<td title="${(r[m] || '').toString().replace(/"/g,'&quot;')}" style="padding:6px;text-align:center;background:${c.bg};color:${c.color};font-weight:700;font-size:.82rem">${c.tx}</td>`;
-      }).join('');
       mainRow = `<tr style="background:${bg}">
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}</td>
-        ${cells}
+        <td style="padding:8px 12px;text-align:center">${badgeMun(classify(r[mesKey]))}</td>
       </tr>`;
     }
 
-    // Sub-linhas por entidade (ocultas) — mostram detalhamento da pendência
     const subRows = hasMultiple ? items.map(r => {
-      const cells = MESES.map(m => {
-        const c = cellColorEnt(r[m]);
-        return `<td title="${(r[m] || '').toString().replace(/"/g,'&quot;')}" style="padding:4px;text-align:center;background:${c.bg};color:${c.color};font-weight:700;font-size:.78rem">${c.tx}</td>`;
-      }).join('');
       return `<tr class="${grpId}" style="display:none;background:${gi % 2 === 0 ? '#F7FAFC' : '#EDF2F7'}">
         <td style="padding:4px 12px 4px 34px;font-size:.76rem;color:var(--text-muted);white-space:nowrap;border-left:3px solid #CBD5E0">↳ ${formatTipoEntidade(r.tipo)}</td>
-        ${cells}
+        <td style="padding:4px 12px;text-align:center">${badgeEnt(r[mesKey])}</td>
       </tr>`;
     }).join('') : '';
 
     return mainRow + subRows;
   }).join('');
 
-  const ths = MESES_LBL.map((l, i) =>
-    `<th style="padding:8px 4px;font-size:.74rem;${i === mesAtual ? 'color:#90CDF4' : ''}">${l}${i === mesAtual ? ' ★' : ''}</th>`
-  ).join('');
-
   tableDiv.innerHTML = `
     <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">
-      Entregas Mensais SICONFI por Município
-      <span style="font-weight:400;text-transform:none;color:var(--text-muted);font-size:.78rem">
-        &nbsp;•&nbsp; <span style="color:#276749">✓ Com CND</span>
-        &nbsp;<span style="color:#C53030">✗ Sem CND</span>
-        &nbsp;|&nbsp; <span style="font-size:.72rem">Entidades: <span style="color:#276749">✓</span> Sem Pendência &nbsp;<span style="color:#9C4221">⚠</span> Com Problema &nbsp;<span style="color:#C53030">✗</span> Não Enviado</span>
-      </span>
+      Situação CND Federal — ${mesLabel} ${anoAtual}
     </h4>
     <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
     <table style="width:100%;border-collapse:collapse;font-family:inherit">
       <thead>
         <tr style="background:var(--header-bg);color:#fff;text-align:center">
           <th style="padding:10px 12px;text-align:left;font-size:.76rem">Município</th>
-          ${ths}
+          <th style="padding:10px 12px;font-size:.76rem">Situação</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
