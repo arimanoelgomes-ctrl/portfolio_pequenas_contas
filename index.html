@@ -573,12 +573,12 @@
 
       <!-- Sub-abas Estadual / Federal -->
       <div style="display:flex;gap:8px;margin:12px 0 16px;border-bottom:2px solid #E2E8F0">
-        <button id="cnd-sub-estadual" class="cnd-sub-btn" onclick="switchCNDSubTab('estadual')"
-          style="padding:8px 18px;background:none;border:none;border-bottom:3px solid transparent;font-weight:700;font-size:.9rem;color:var(--text-muted);cursor:pointer;margin-bottom:-2px">
+        <button id="cnd-sub-estadual" class="cnd-sub-btn cnd-sub-active" onclick="switchCNDSubTab('estadual')"
+          style="padding:8px 18px;background:none;border:none;border-bottom:3px solid var(--accent);font-weight:700;font-size:.9rem;color:var(--accent);cursor:pointer;margin-bottom:-2px;transition:color .2s,border-color .2s">
           🏛️ Estadual (SC)
         </button>
         <button id="cnd-sub-federal" class="cnd-sub-btn" onclick="switchCNDSubTab('federal')"
-          style="padding:8px 18px;background:none;border:none;border-bottom:3px solid transparent;font-weight:700;font-size:.9rem;color:var(--text-muted);cursor:pointer;margin-bottom:-2px">
+          style="padding:8px 18px;background:none;border:none;border-bottom:3px solid transparent;font-weight:700;font-size:.9rem;color:var(--text-muted);cursor:pointer;margin-bottom:-2px;transition:color .2s,border-color .2s">
           🇧🇷 Federal
         </button>
       </div>
@@ -1283,16 +1283,14 @@ function switchCNDSubTab(tab) {
   const paneF = document.getElementById('cnd-pane-federal');
   const btnE  = document.getElementById('cnd-sub-estadual');
   const btnF  = document.getElementById('cnd-sub-federal');
-  const activeStyle   = 'color:var(--accent);border-bottom-color:var(--accent)';
-  const inactiveStyle = 'color:var(--text-muted);border-bottom-color:transparent';
   if (tab === 'federal') {
     paneE.style.display = 'none'; paneF.style.display = '';
-    btnE.setAttribute('style', btnE.getAttribute('style').replace(/color:[^;]+;border-bottom-color:[^;]+/, inactiveStyle));
-    btnF.setAttribute('style', btnF.getAttribute('style').replace(/color:[^;]+;border-bottom-color:[^;]+/, activeStyle));
+    btnF.style.color = 'var(--accent)';  btnF.style.borderBottomColor = 'var(--accent)';
+    btnE.style.color = 'var(--text-muted)'; btnE.style.borderBottomColor = 'transparent';
   } else {
     paneE.style.display = ''; paneF.style.display = 'none';
-    btnE.setAttribute('style', btnE.getAttribute('style').replace(/color:[^;]+;border-bottom-color:[^;]+/, activeStyle));
-    btnF.setAttribute('style', btnF.getAttribute('style').replace(/color:[^;]+;border-bottom-color:[^;]+/, inactiveStyle));
+    btnE.style.color = 'var(--accent)';  btnE.style.borderBottomColor = 'var(--accent)';
+    btnF.style.color = 'var(--text-muted)'; btnF.style.borderBottomColor = 'transparent';
   }
   renderCND();
 }
@@ -1411,8 +1409,6 @@ function renderCNDEstadual() {
     const bg = gi % 2 === 0 ? '#fff' : '#F8FAFC';
     const hasMultiple = items.length > 1;
     const grpId = 'est-grp-' + gi;
-    const maxAtraso = Math.max(...items.map(r => parseInt(r.meses_atraso) || 0));
-    const atrasoMain = maxAtraso > 0 ? `<span style="color:#C53030;font-weight:700">${maxAtraso}</span>` : '0';
 
     const arrow = hasMultiple ? `<span class="cnd-expand-arrow" id="arrow-${grpId}" style="display:inline-block;transition:transform .2s;margin-right:6px;font-size:.7rem;color:var(--text-muted)">▶</span>` : `<span style="display:inline-block;width:16px"></span>`;
     const cursor = hasMultiple ? 'cursor:pointer' : '';
@@ -1423,24 +1419,18 @@ function renderCNDEstadual() {
       const countLabel = `<span style="font-size:.7rem;color:var(--text-muted);font-weight:400;margin-left:6px">(${items.length} entidades)</span>`;
       mainRow = `<tr style="background:${bg};${cursor}" ${onclick}>
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}${countLabel}</td>
-        <td style="padding:8px 12px;text-align:center;font-size:.78rem">${atrasoMain}</td>
         <td style="padding:8px 12px;text-align:center">${badgeMun(munStatusVal(items))}</td>
       </tr>`;
     } else {
-      const r = items[0];
-      const atraso = r.meses_atraso && parseInt(r.meses_atraso) > 0 ? `<span style="color:#C53030;font-weight:700">${r.meses_atraso}</span>` : (r.meses_atraso || '0');
       mainRow = `<tr style="background:${bg}">
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}</td>
-        <td style="padding:8px 12px;text-align:center;font-size:.78rem">${atraso}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(r[curKey])}</td>
+        <td style="padding:8px 12px;text-align:center">${badgeMun(items[0][curKey])}</td>
       </tr>`;
     }
 
     const subRows = hasMultiple ? items.map(r => {
-      const atraso = r.meses_atraso && parseInt(r.meses_atraso) > 0 ? `<span style="color:#C53030;font-weight:700">${r.meses_atraso}</span>` : (r.meses_atraso || '0');
       return `<tr class="${grpId}" style="display:none;background:${gi % 2 === 0 ? '#F7FAFC' : '#EDF2F7'}">
         <td style="padding:4px 12px 4px 34px;font-size:.76rem;color:var(--text-muted);border-left:3px solid #CBD5E0">↳ ${r.entidade || ''}</td>
-        <td style="padding:4px 12px;text-align:center;font-size:.76rem">${atraso}</td>
         <td style="padding:4px 12px;text-align:center">${badgeEnt(r[curKey])}</td>
       </tr>`;
     }).join('') : '';
@@ -1457,7 +1447,6 @@ function renderCNDEstadual() {
       <thead>
         <tr style="background:var(--header-bg);color:#fff;text-align:center">
           <th style="padding:10px 12px;text-align:left;font-size:.76rem">Município</th>
-          <th style="padding:10px 12px;font-size:.76rem">Meses atraso</th>
           <th style="padding:10px 12px;font-size:.76rem">Situação</th>
         </tr>
       </thead>
