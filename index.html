@@ -1239,6 +1239,20 @@ function formatDataFonte(raw) {
   return s; // fallback
 }
 
+// Formata tipo de entidade (SICONFI): PREFEITURA, CAMARA, FUNDO_FUNDACAO, CONSORCIO
+function formatTipoEntidade(t) {
+  if (!t) return '';
+  const s = t.toString().trim().toUpperCase();
+  if (s === 'PREFEITURA')      return 'Prefeitura';
+  if (s === 'CAMARA')          return 'Câmara';
+  if (s === 'FUNDO_FUNDACAO')  return 'Fundo/Fundação';
+  if (s === 'CONSORCIO')       return 'Consórcio';
+  // Fallback: title case + troca underscore por espaço
+  return t.toString().replace(/_/g, ' ').toLowerCase()
+    .split(/\s+/).filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
 // Title Case para município (com preposições minúsculas) — aplicado no client como defesa
 function titleCaseMun(s) {
   if (!s) return '';
@@ -1408,12 +1422,19 @@ function renderCNDFederal() {
   // Badge da última atualização da fonte (SICONFI)
   renderCNDStatusFonte('cnd-federal-status', state.cndFederal[0].status_fonte || '', 'SICONFI');
 
-  // Classifica status: 'Enviado' = Com CND; 'Com problema' ou 'Não Enviado' = Sem CND; vazio = n/d
+  // Classifica status em 3 categorias:
+  //  'com'    → Enviado (verde ✓)
+  //  'sem'    → Não Enviado (vermelho ✗)
+  //  'atraso' → qualquer outro texto (Com problema, Em Atraso, Vários problemas…) (laranja ⚠)
+  //  'nd'     → vazio
   const classify = (v) => {
-    const s = (v || '').toString().toLowerCase();
+    const s = (v || '').toString().trim().toLowerCase();
     if (!s) return 'nd';
-    if (s.includes('enviado') && !s.includes('não') && !s.includes('nao')) return 'com';
-    return 'sem'; // 'Com problema' e 'Não Enviado' contam como "Sem"
+    const isNao = s.includes('não') || s.includes('nao');
+    if (s.includes('enviado') && !isNao) return 'com';
+    // "Não Enviado" exato (sem outros textos concatenados tipo "- vários problemas")
+    if (isNao && s.includes('enviado') && !s.includes('-') && !s.includes('problema') && !s.includes('atraso')) return 'sem';
+    return 'atraso';
   };
 
   // Mês atual (1..12) para destacar
@@ -1430,37 +1451,43 @@ function renderCNDFederal() {
 
   MESES.forEach((m, i) => {
     const com = state.cndFederal.filter(r => classify(r[m]) === 'com').length;
-    const sem = state.cndFederal.filter(r => classify(r[m]) === 'sem').length;
+    // "sem" no donut = tudo que não está enviado (Não Enviado + Em Atraso + Com problema)
+    const sem = state.cndFederal.filter(r => { const k = classify(r[m]); return k === 'sem' || k === 'atraso'; }).length;
     makeCNDDonutGeneric('cnd-fed-m' + i, com, sem, { highlight: i === mesAtual, subText: 'enviado' });
   });
 
-  // Tabela heatmap: uma linha por município, 12 colunas de meses
+  // Tabela heatmap: uma linha por município+entidade, 12 colunas de meses
   const cellColor = (v) => {
     const k = classify(v);
-    if (k === 'com') return { bg: '#C6F6D5', color: '#276749', tx: '✓' };
-    if (k === 'sem') {
-      const s = (v || '').toLowerCase();
-      if (s.includes('problema')) return { bg: '#FEEBC8', color: '#9C4221', tx: '⚠' };
-      return { bg: '#FED7D7', color: '#C53030', tx: '✗' };
-    }
+    if (k === 'com')    return { bg: '#C6F6D5', color: '#276749', tx: '✓' };
+    if (k === 'sem')    return { bg: '#FED7D7', color: '#C53030', tx: '✗' };
+    if (k === 'atraso') return { bg: '#FEEBC8', color: '#9C4221', tx: '⚠' };
     return { bg: '#F7FAFC', color: '#A0AEC0', tx: '—' };
   };
 
-  // Ordena: mais "Sem/Problema" no mês atual primeiro
+  // Ordena: mais pendências no mês atual primeiro; depois por município + entidade
   const ordenados = [...state.cndFederal].sort((a, b) => {
-    const score = r => MESES.reduce((acc, m, idx) => acc + (classify(r[m]) === 'sem' ? (idx === mesAtual ? 10 : 1) : 0), 0);
+    const score = r => MESES.reduce((acc, m, idx) => {
+      const k = classify(r[m]);
+      const peso = (k === 'sem' || k === 'atraso') ? 1 : 0;
+      return acc + peso * (idx === mesAtual ? 10 : 1);
+    }, 0);
     const diff = score(b) - score(a);
-    return diff !== 0 ? diff : a.municipio.localeCompare(b.municipio, 'pt-BR');
+    if (diff !== 0) return diff;
+    const mdiff = a.municipio.localeCompare(b.municipio, 'pt-BR');
+    if (mdiff !== 0) return mdiff;
+    return (a.tipo || '').localeCompare(b.tipo || '', 'pt-BR');
   });
 
   const rows = ordenados.map((r, idx) => {
     const bg = idx % 2 === 0 ? '#fff' : '#F8FAFC';
     const cells = MESES.map(m => {
       const c = cellColor(r[m]);
-      return `<td title="${(r[m] || '').replace(/"/g,'&quot;')}" style="padding:6px;text-align:center;background:${c.bg};color:${c.color};font-weight:700;font-size:.82rem">${c.tx}</td>`;
+      return `<td title="${(r[m] || '').toString().replace(/"/g,'&quot;')}" style="padding:6px;text-align:center;background:${c.bg};color:${c.color};font-weight:700;font-size:.82rem">${c.tx}</td>`;
     }).join('');
     return `<tr style="background:${bg}">
       <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${r.municipio}</td>
+      <td style="padding:8px 12px;font-size:.78rem;color:var(--text-muted);white-space:nowrap">${formatTipoEntidade(r.tipo)}</td>
       ${cells}
     </tr>`;
   }).join('');
@@ -1471,10 +1498,10 @@ function renderCNDFederal() {
 
   tableDiv.innerHTML = `
     <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">
-      Entregas Mensais SICONFI por Município
+      Entregas Mensais SICONFI por Município / Entidade
       <span style="font-weight:400;text-transform:none;color:var(--text-muted);font-size:.78rem">
         &nbsp;•&nbsp; <span style="color:#276749">✓ Enviado</span>
-        &nbsp;<span style="color:#9C4221">⚠ Com problema</span>
+        &nbsp;<span style="color:#9C4221">⚠ Em Atraso / Com problema</span>
         &nbsp;<span style="color:#C53030">✗ Não Enviado</span>
       </span>
     </h4>
@@ -1483,6 +1510,7 @@ function renderCNDFederal() {
       <thead>
         <tr style="background:var(--header-bg);color:#fff;text-align:center">
           <th style="padding:10px 12px;text-align:left;font-size:.76rem">Município</th>
+          <th style="padding:10px 12px;text-align:left;font-size:.76rem">Entidade</th>
           ${ths}
         </tr>
       </thead>
