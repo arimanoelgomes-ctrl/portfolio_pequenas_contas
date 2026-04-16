@@ -1361,11 +1361,11 @@ function renderCNDEstadual() {
   makeCNDDonutGeneric('cnd-est-p2', count('periodo2','Com CND'), count('periodo2','Sem CND'), {});
   makeCNDDonutGeneric('cnd-est-p3', count('periodo3','Com CND'), count('periodo3','Sem CND'), { highlight: true });
 
-  // Ordenação: pior situação primeiro (Sem no P3 > P2 > P1)
+  // Ordenação: município ASC → entidade ASC
   const ordenados = [...state.cndEstadual].sort((a, b) => {
-    const score = r => (r.periodo3 === 'Sem CND' ? 4 : 0) + (r.periodo2 === 'Sem CND' ? 2 : 0) + (r.periodo1 === 'Sem CND' ? 1 : 0);
-    const diff = score(b) - score(a);
-    return diff !== 0 ? diff : a.municipio.localeCompare(b.municipio, 'pt-BR');
+    const mdiff = a.municipio.localeCompare(b.municipio, 'pt-BR');
+    if (mdiff !== 0) return mdiff;
+    return (a.entidade || '').localeCompare(b.entidade || '', 'pt-BR');
   });
 
   const badge = v =>
@@ -1373,16 +1373,30 @@ function renderCNDEstadual() {
     : v === 'Sem CND' ? `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✗ Sem CND</span>`
     : `<span style="color:#A0AEC0;font-size:.78rem">—</span>`;
 
-  const rows = ordenados.map((r, i) => {
-    const bg = i % 2 === 0 ? '#fff' : '#F8FAFC';
+  // Agrupar por município — conta quantas entidades cada um tem para rowspan
+  const grupos = {};
+  ordenados.forEach(r => {
+    if (!grupos[r.municipio]) grupos[r.municipio] = [];
+    grupos[r.municipio].push(r);
+  });
+
+  let grpIdx = 0;
+  let lastMun = null;
+  const rows = ordenados.map((r) => {
+    const isFirstOfGroup = r.municipio !== lastMun;
+    if (isFirstOfGroup) { grpIdx++; lastMun = r.municipio; }
+    const bg = grpIdx % 2 === 0 ? '#fff' : '#F8FAFC';
     const atraso = r.meses_atraso && parseInt(r.meses_atraso) > 0 ? `<span style="color:#C53030;font-weight:700">${r.meses_atraso}</span>` : (r.meses_atraso || '0');
+    const munCell = isFirstOfGroup
+      ? `<td rowspan="${grupos[r.municipio].length}" style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap;vertical-align:top;border-bottom:2px solid #E2E8F0">${r.municipio}</td>`
+      : '';
     return `<tr style="background:${bg}">
-      <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${r.municipio}</td>
-      <td style="padding:8px 12px;font-size:.76rem;color:var(--text-muted)">${r.entidade}</td>
-      <td style="padding:8px 12px;text-align:center;font-size:.78rem">${atraso}</td>
-      <td style="padding:8px 12px;text-align:center">${badge(r.periodo1)}</td>
-      <td style="padding:8px 12px;text-align:center">${badge(r.periodo2)}</td>
-      <td style="padding:8px 12px;text-align:center">${badge(r.periodo3)}</td>
+      ${munCell}
+      <td style="padding:6px 12px;font-size:.76rem;color:var(--text-muted)">${r.entidade || ''}</td>
+      <td style="padding:6px 12px;text-align:center;font-size:.78rem">${atraso}</td>
+      <td style="padding:6px 12px;text-align:center">${badge(r.periodo1)}</td>
+      <td style="padding:6px 12px;text-align:center">${badge(r.periodo2)}</td>
+      <td style="padding:6px 12px;text-align:center">${badge(r.periodo3)}</td>
     </tr>`;
   }).join('');
 
@@ -1465,29 +1479,36 @@ function renderCNDFederal() {
     return { bg: '#F7FAFC', color: '#A0AEC0', tx: '—' };
   };
 
-  // Ordena: mais pendências no mês atual primeiro; depois por município + entidade
+  // Ordena: município ASC → entidade ASC
   const ordenados = [...state.cndFederal].sort((a, b) => {
-    const score = r => MESES.reduce((acc, m, idx) => {
-      const k = classify(r[m]);
-      const peso = (k === 'sem' || k === 'atraso') ? 1 : 0;
-      return acc + peso * (idx === mesAtual ? 10 : 1);
-    }, 0);
-    const diff = score(b) - score(a);
-    if (diff !== 0) return diff;
     const mdiff = a.municipio.localeCompare(b.municipio, 'pt-BR');
     if (mdiff !== 0) return mdiff;
     return (a.tipo || '').localeCompare(b.tipo || '', 'pt-BR');
   });
 
-  const rows = ordenados.map((r, idx) => {
-    const bg = idx % 2 === 0 ? '#fff' : '#F8FAFC';
+  // Agrupar por município para rowspan
+  const grupos = {};
+  ordenados.forEach(r => {
+    if (!grupos[r.municipio]) grupos[r.municipio] = [];
+    grupos[r.municipio].push(r);
+  });
+
+  let grpIdx = 0;
+  let lastMun = null;
+  const rows = ordenados.map((r) => {
+    const isFirstOfGroup = r.municipio !== lastMun;
+    if (isFirstOfGroup) { grpIdx++; lastMun = r.municipio; }
+    const bg = grpIdx % 2 === 0 ? '#fff' : '#F8FAFC';
     const cells = MESES.map(m => {
       const c = cellColor(r[m]);
       return `<td title="${(r[m] || '').toString().replace(/"/g,'&quot;')}" style="padding:6px;text-align:center;background:${c.bg};color:${c.color};font-weight:700;font-size:.82rem">${c.tx}</td>`;
     }).join('');
+    const munCell = isFirstOfGroup
+      ? `<td rowspan="${grupos[r.municipio].length}" style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap;vertical-align:top;border-bottom:2px solid #E2E8F0">${r.municipio}</td>`
+      : '';
     return `<tr style="background:${bg}">
-      <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${r.municipio}</td>
-      <td style="padding:8px 12px;font-size:.78rem;color:var(--text-muted);white-space:nowrap">${formatTipoEntidade(r.tipo)}</td>
+      ${munCell}
+      <td style="padding:6px 12px;font-size:.78rem;color:var(--text-muted);white-space:nowrap">${formatTipoEntidade(r.tipo)}</td>
       ${cells}
     </tr>`;
   }).join('');
