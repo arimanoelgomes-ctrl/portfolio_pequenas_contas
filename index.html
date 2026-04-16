@@ -896,8 +896,9 @@ function updateKPIs() {
     state.cndEstadual.forEach(r => { if (!estGrp[r.municipio]) estGrp[r.municipio] = []; estGrp[r.municipio].push(r); });
     const estMuns = Object.values(estGrp);
     const estCom = estMuns.filter(items => !items.some(r => r[estKey] === 'Sem CND') && items.some(r => r[estKey] === 'Com CND')).length;
+    const estTotalMuns = Object.keys(estGrp).length;
     document.getElementById('kpi-cnd-est').textContent = estCom;
-    document.getElementById('kpi-cnd-est-sub').textContent = `de ${TOTAL_MUNICIPIOS_CND} municípios`;
+    document.getElementById('kpi-cnd-est-sub').textContent = `de ${estTotalMuns} municípios`;
   } else {
     document.getElementById('kpi-cnd-est').textContent = '—';
     document.getElementById('kpi-cnd-est-sub').textContent = 'Dados indisponíveis';
@@ -922,8 +923,9 @@ function updateKPIs() {
       const vals = items.map(r => classifyFed(r[fedMesKey]));
       return vals.every(v => v === 'com' || v === 'nd') && vals.some(v => v === 'com');
     }).length;
+    const fedTotalMuns = Object.keys(fedGrp).length;
     document.getElementById('kpi-cnd-fed').textContent = fedCom;
-    document.getElementById('kpi-cnd-fed-sub').textContent = `de ${TOTAL_MUNICIPIOS_CND} municípios`;
+    document.getElementById('kpi-cnd-fed-sub').textContent = `de ${fedTotalMuns} municípios`;
   } else {
     document.getElementById('kpi-cnd-fed').textContent = '—';
     document.getElementById('kpi-cnd-fed-sub').textContent = 'Dados indisponíveis';
@@ -1434,7 +1436,7 @@ function renderCNDEstadual() {
   const statusFonte = state.cndEstadual[0].status_fonte || '';
   renderCNDStatusFonte('cnd-estadual-status', statusFonte, 'e-Sfinge TCE/SC');
 
-  // Agrupar por município (dados reais)
+  // Agrupar por município (apenas dados reais — filtro Betha+Pequenas feito server-side)
   const ordenados = [...state.cndEstadual].sort((a, b) => {
     const mdiff = a.municipio.localeCompare(b.municipio, 'pt-BR');
     if (mdiff !== 0) return mdiff;
@@ -1446,19 +1448,15 @@ function renderCNDEstadual() {
     if (!grupos[key]) grupos[key] = { nome: r.municipio, items: [] };
     grupos[key].items.push(r);
   });
-  // Incluir municípios do portfólio que não estão nos dados (= Sem CND)
-  PORTFOLIO_MUNICIPIOS.forEach(m => {
-    const key = normMun(m);
-    if (!grupos[key]) grupos[key] = { nome: m, items: [] };
-  });
   const munKeys = Object.keys(grupos).sort((a, b) => grupos[a].nome.localeCompare(grupos[b].nome, 'pt-BR'));
+  const totalMuns = munKeys.length;
 
-  // Donut único — por município (ausentes = Sem CND)
+  // Donut — conta apenas municípios presentes nos dados
   const comMun = munKeys.filter(k => {
     const items = grupos[k].items;
-    return items.length > 0 && !items.some(r => r[curKey] === 'Sem CND') && items.some(r => r[curKey] === 'Com CND');
+    return !items.some(r => r[curKey] === 'Sem CND') && items.some(r => r[curKey] === 'Com CND');
   }).length;
-  const semMun = TOTAL_MUNICIPIOS_CND - comMun;
+  const semMun = totalMuns - comMun;
 
   donutsDiv.innerHTML = `
     <div style="max-width:220px;margin:0 auto">
@@ -1496,24 +1494,17 @@ function renderCNDEstadual() {
     const cursor = hasMultiple ? 'cursor:pointer' : '';
     const onclick = hasMultiple ? `onclick="toggleCndGroup('${grpId}')"` : '';
 
-    const status = munStatusVal(items);
     let mainRow;
     if (hasMultiple) {
       const countLabel = `<span style="font-size:.7rem;color:var(--text-muted);font-weight:400;margin-left:6px">(${items.length} entidades)</span>`;
       mainRow = `<tr style="background:${bg};${cursor}" ${onclick}>
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}${countLabel}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(status)}</td>
-      </tr>`;
-    } else if (items.length === 1) {
-      mainRow = `<tr style="background:${bg}">
-        <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(items[0][curKey] || 'Sem CND')}</td>
+        <td style="padding:8px 12px;text-align:center">${badgeMun(munStatusVal(items))}</td>
       </tr>`;
     } else {
-      // Município sem dados na planilha = Sem CND
       mainRow = `<tr style="background:${bg}">
-        <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap"><span style="display:inline-block;width:16px"></span>${mun}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun('Sem CND')}</td>
+        <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}</td>
+        <td style="padding:8px 12px;text-align:center">${badgeMun(items[0][curKey])}</td>
       </tr>`;
     }
 
@@ -1588,21 +1579,15 @@ function renderCNDFederal() {
     if (!grupos[key]) grupos[key] = { nome: r.municipio, items: [] };
     grupos[key].items.push(r);
   });
-  // Incluir municípios do portfólio ausentes (= Sem CND)
-  PORTFOLIO_MUNICIPIOS.forEach(m => {
-    const key = normMun(m);
-    if (!grupos[key]) grupos[key] = { nome: m, items: [] };
-  });
   const munKeys = Object.keys(grupos).sort((a, b) => grupos[a].nome.localeCompare(grupos[b].nome, 'pt-BR'));
+  const totalMuns = munKeys.length;
 
-  // Donut único — por município no mês atual (ausentes = Sem CND)
+  // Donut — apenas municípios presentes nos dados
   const comMun = munKeys.filter(k => {
-    const items = grupos[k].items;
-    if (!items.length) return false;
-    const vals = items.map(r => classify(r[mesKey]));
+    const vals = grupos[k].items.map(r => classify(r[mesKey]));
     return vals.every(v => v === 'com' || v === 'nd') && vals.some(v => v === 'com');
   }).length;
-  const semMun = TOTAL_MUNICIPIOS_CND - comMun;
+  const semMun = totalMuns - comMun;
 
   donutsDiv.innerHTML = `
     <div style="max-width:220px;margin:0 auto">
@@ -1629,12 +1614,11 @@ function renderCNDFederal() {
   };
 
   const munStatusVal = (items) => {
-    if (!items.length) return 'sem'; // município sem dados = Sem CND
     const vals = items.map(r => classify(r[mesKey]));
     if (vals.includes('atraso')) return 'atraso';
     if (vals.includes('sem'))    return 'sem';
     if (vals.includes('com'))    return 'com';
-    return 'sem';
+    return 'nd';
   };
 
   const rows = munKeys.map((k, gi) => {
@@ -1654,16 +1638,10 @@ function renderCNDFederal() {
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}${countLabel}</td>
         <td style="padding:8px 12px;text-align:center">${badgeMun(munStatusVal(items))}</td>
       </tr>`;
-    } else if (items.length === 1) {
+    } else {
       mainRow = `<tr style="background:${bg}">
         <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(classify(items[0][mesKey]) || 'sem')}</td>
-      </tr>`;
-    } else {
-      // Município sem dados na planilha = Sem CND
-      mainRow = `<tr style="background:${bg}">
-        <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap"><span style="display:inline-block;width:16px"></span>${mun}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun('sem')}</td>
+        <td style="padding:8px 12px;text-align:center">${badgeMun(classify(items[0][mesKey]))}</td>
       </tr>`;
     }
 
