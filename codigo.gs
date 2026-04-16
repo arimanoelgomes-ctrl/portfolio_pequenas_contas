@@ -317,6 +317,7 @@ function fetchAndStoreCNDFederal() {
     return;
   }
 
+  // Filtra por Prestador = 'Betha Sistemas' + Canal = 'Pequenas e Médias Contas' + município do portfólio
   const filtrados = values.slice(3).filter(r =>
     _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun] && _isMunicipioPortfolio(r[iMun]));
   Logger.log('  SICONFI: ' + filtrados.length + ' linhas após filtro (Betha + Pequenas e Médias + portfólio)');
@@ -395,6 +396,7 @@ function fetchAndStoreCNDEstadual() {
     return;
   }
 
+  // Filtra por Prestador = 'Betha Sistemas' + Canal = 'Pequenas e Médias Contas' + município do portfólio
   const filtrados = values.slice(3).filter(r =>
     _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun] && _isMunicipioPortfolio(r[iMun]));
   Logger.log('  e-Sfinge: ' + filtrados.length + ' linhas após filtro (Betha + Pequenas e Médias + portfólio)');
@@ -470,6 +472,28 @@ function diagnosticarSICONFI(municipioAlvo) {
     meses.forEach((m, j) => {
       Logger.log('    ' + m + ' (col ' + iMes[j] + ') = "' + r[iMes[j]] + '"');
     });
+  });
+}
+
+// Diagnóstico e-Sfinge: mostra todas as linhas de um município na planilha fonte
+function diagnosticarEsfinge(municipioAlvo) {
+  municipioAlvo = municipioAlvo || 'Agrolandia';
+  Logger.log('🔍 Diagnóstico e-Sfinge — alvo: ' + municipioAlvo);
+  const values = _readSheetByGid(ESFINGE_SHEET_ID, ESFINGE_GID);
+  Logger.log('  Total linhas: ' + values.length);
+  const headerRow = values[2];
+  Logger.log('  Cabeçalho (linha 3): ' + headerRow.join(' | '));
+  const idx = (name) => headerRow.findIndex(h => _normStr(h) === _normStr(name));
+  const iPrest = idx('Prestador'), iCanal = idx('Canal'), iMun = idx('Municipio'), iEnt = idx('Entidade');
+  Logger.log('  Índices: Prestador=' + iPrest + ' Canal=' + iCanal + ' Mun=' + iMun + ' Entidade=' + iEnt);
+  const matches = values.slice(3).filter(r =>
+    r[iMun] && _normStr(r[iMun]).indexOf(_normStr(municipioAlvo)) >= 0);
+  Logger.log('  Linhas encontradas para "' + municipioAlvo + '": ' + matches.length);
+  matches.forEach((r, i) => {
+    const certs = headerRow.map((h, j) => /^Certid/i.test(h ? h.toString() : '') ? h + '=' + r[j] : null).filter(Boolean);
+    Logger.log('  Linha ' + (i+1) + ': Prestador="' + r[iPrest] + '" | Canal="' + r[iCanal] + '" | Entidade="' + r[iEnt] + '" | ' + certs.join(' | '));
+    Logger.log('    → passa filtro Betha+Pequenas: ' + _isPequenasContasBetha(r, iPrest, iCanal));
+    Logger.log('    → no portfólio: ' + _isMunicipioPortfolio(r[iMun]));
   });
 }
 
