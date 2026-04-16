@@ -227,11 +227,13 @@ function _readSheetByGid(sheetId, gid) {
   if (!tab) throw new Error('Aba gid=' + gid + ' não encontrada em ' + sheetId);
   return tab.getDataRange().getValues();
 }
-// Filtro compartilhado: apenas Betha Sistemas + Canal Pequenas e Médias Contas
+// Filtro compartilhado: Betha Sistemas + Canal in ("Pequenas e Médias Contas", "Pequenas Contas")
 function _isPequenasContasBetha(row, iPrest, iCanal) {
-  return _normStr(row[iPrest]) === 'betha sistemas'
-      && _normStr(row[iCanal]).indexOf('pequenas') >= 0
-      && _normStr(row[iCanal]).indexOf('medias') >= 0;
+  if (_normStr(row[iPrest]) !== 'betha sistemas') return false;
+  const canal = _normStr(row[iCanal]);
+  const isPequenasMedias = canal.indexOf('pequenas') >= 0 && canal.indexOf('medias') >= 0;
+  const isPequenasContas = canal === 'pequenas contas';
+  return isPequenasMedias || isPequenasContas;
 }
 
 // Whitelist de municípios do portfólio de Pequenas Contas
