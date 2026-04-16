@@ -240,7 +240,7 @@ const PORTFOLIO_MUNICIPIOS = [
   'abdon batista','agrolandia','anchieta','angelina','anita garibaldi',
   'balneario arroio do silva','balneario barra do sul','balneario camboriu','balneario picarras',
   'bandeirante','barra bonita','barra velha','bela vista do toldo','belmonte','benedito novo',
-  'brunopolis','cacador','calmon','campo alegre','campos novos','capao alto','chapeco','concordia',
+  'brunopolis','cacador','calmon','campo alegre','capao alto','chapeco','concordia',
   'dona emma','ermo','erval velho','frei rogerio','imbuia','ipira','ipuacu','iraceminha','ita',
   'itajai','jupia','lacerdopolis','lajeado grande','leoberto leal','lindoia do sul','luiz alves',
   'luzerna','mafra','massaranduba','meleiro','modelo','morro da fumaca','morro grande','penha',
