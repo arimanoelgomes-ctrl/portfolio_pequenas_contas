@@ -398,10 +398,15 @@ function fetchAndStoreCNDEstadual() {
     return;
   }
 
-  // Filtra por Prestador = 'Betha Sistemas' + Canal = 'Pequenas e Médias Contas' + município do portfólio
-  const filtrados = values.slice(3).filter(r =>
-    _isPequenasContasBetha(r, iPrest, iCanal) && r[iMun] && _isMunicipioPortfolio(r[iMun]));
-  Logger.log('  e-Sfinge: ' + filtrados.length + ' linhas após filtro (Betha + Pequenas e Médias + portfólio)');
+  // Filtra: Betha + Pequenas Contas + município do portfólio + apenas Prefeitura
+  const filtrados = values.slice(3).filter(r => {
+    if (!_isPequenasContasBetha(r, iPrest, iCanal)) return false;
+    if (!r[iMun] || !_isMunicipioPortfolio(r[iMun])) return false;
+    // Apenas entidades do tipo Prefeitura
+    const ent = iEnt >= 0 ? _normStr(r[iEnt]) : '';
+    return ent.indexOf('prefeitura') >= 0;
+  });
+  Logger.log('  e-Sfinge: ' + filtrados.length + ' linhas após filtro (Betha + Pequenas + portfólio + Prefeitura)');
 
   const normCert = (v) => {
     const s = _normStr(v);

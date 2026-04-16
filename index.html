@@ -1484,38 +1484,15 @@ function renderCNDEstadual() {
     return 'Sem CND';
   };
 
+  // 1 linha por município (somente Prefeitura — filtrado server-side)
   const rows = munKeys.map((k, gi) => {
     const { nome: mun, items } = grupos[k];
     const bg = gi % 2 === 0 ? '#fff' : '#F8FAFC';
-    const hasMultiple = items.length > 1;
-    const grpId = 'est-grp-' + gi;
-
-    const arrow = hasMultiple ? `<span class="cnd-expand-arrow" id="arrow-${grpId}" style="display:inline-block;transition:transform .2s;margin-right:6px;font-size:.7rem;color:var(--text-muted)">▶</span>` : `<span style="display:inline-block;width:16px"></span>`;
-    const cursor = hasMultiple ? 'cursor:pointer' : '';
-    const onclick = hasMultiple ? `onclick="toggleCndGroup('${grpId}')"` : '';
-
-    let mainRow;
-    if (hasMultiple) {
-      const countLabel = `<span style="font-size:.7rem;color:var(--text-muted);font-weight:400;margin-left:6px">(${items.length} entidades)</span>`;
-      mainRow = `<tr style="background:${bg};${cursor}" ${onclick}>
-        <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}${countLabel}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(munStatusVal(items))}</td>
-      </tr>`;
-    } else {
-      mainRow = `<tr style="background:${bg}">
-        <td style="padding:8px 12px;font-size:.82rem;font-weight:600;white-space:nowrap">${arrow}${mun}</td>
-        <td style="padding:8px 12px;text-align:center">${badgeMun(items[0][curKey])}</td>
-      </tr>`;
-    }
-
-    const subRows = hasMultiple ? items.map(r => {
-      return `<tr class="${grpId}" style="display:none;background:${gi % 2 === 0 ? '#F7FAFC' : '#EDF2F7'}">
-        <td style="padding:4px 12px 4px 34px;font-size:.76rem;color:var(--text-muted);border-left:3px solid #CBD5E0">↳ ${r.entidade || ''}</td>
-        <td style="padding:4px 12px;text-align:center">${badgeEnt(r[curKey])}</td>
-      </tr>`;
-    }).join('') : '';
-
-    return mainRow + subRows;
+    const r = items[0];
+    return `<tr style="background:${bg}">
+      <td style="padding:8px 12px;font-size:.82rem;font-weight:600">${mun}</td>
+      <td style="padding:8px 12px;text-align:center">${badgeMun(r[curKey])}</td>
+    </tr>`;
   }).join('');
 
   tableDiv.innerHTML = `
