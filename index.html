@@ -131,7 +131,7 @@
     /* ===== KPI Cards ===== */
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
       gap: 16px;
       margin-bottom: 24px;
     }
@@ -468,9 +468,14 @@
       <div class="kpi-sub" id="kpi-chamados-sub">Carregando…</div>
     </div>
     <div class="kpi-card green">
-      <div class="kpi-label">Clientes com CND</div>
-      <div class="kpi-value" id="kpi-cnd">—</div>
-      <div class="kpi-sub" id="kpi-cnd-sub">Carregando…</div>
+      <div class="kpi-label">CND Estadual</div>
+      <div class="kpi-value" id="kpi-cnd-est">—</div>
+      <div class="kpi-sub" id="kpi-cnd-est-sub">Carregando…</div>
+    </div>
+    <div class="kpi-card green">
+      <div class="kpi-label">CND Federal</div>
+      <div class="kpi-value" id="kpi-cnd-fed">—</div>
+      <div class="kpi-sub" id="kpi-cnd-fed-sub">Carregando…</div>
     </div>
     <div class="kpi-card red">
       <div class="kpi-label">Clientes em Risco</div>
@@ -850,11 +855,54 @@ function updateKPIs() {
   document.getElementById('kpi-chamados-sub').textContent =
     state.jira.length ? `Em ${municipiosJira.length} municípios` : 'Dados indisponíveis';
 
-  // CND — KPI usa certidão ESTADUAL mais recente (periodo3)
-  const comCND = state.cndEstadual.filter(r => r.periodo3 === 'Com CND').length;
-  document.getElementById('kpi-cnd').textContent = state.cndEstadual.length ? comCND : '—';
-  document.getElementById('kpi-cnd-sub').textContent =
-    state.cndEstadual.length ? `de ${state.cndEstadual.length} entidades (Estadual)` : 'Dados indisponíveis';
+  // CND Estadual — conta por MUNICÍPIO no período atual
+  if (state.cndEstadual.length) {
+    // Detectar período atual (mesma lógica de renderCNDEstadual)
+    const estLabels = [
+      { key: 'periodo1', label: state.cndEstadual[0].p1_label || '' },
+      { key: 'periodo2', label: state.cndEstadual[0].p2_label || '' },
+      { key: 'periodo3', label: state.cndEstadual[0].p3_label || '' },
+    ];
+    const parseSD = (lbl) => { const m = lbl.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if (!m) return null; const yy = m[3].length === 2 ? 2000+parseInt(m[3]) : parseInt(m[3]); return new Date(yy, parseInt(m[2])-1, parseInt(m[1])); };
+    let estIdx = 0;
+    estLabels.forEach((p, i) => { const d = parseSD(p.label); if (d && d <= new Date()) estIdx = i; });
+    const estKey = estLabels[estIdx].key;
+    const estGrp = {};
+    state.cndEstadual.forEach(r => { if (!estGrp[r.municipio]) estGrp[r.municipio] = []; estGrp[r.municipio].push(r); });
+    const estMuns = Object.values(estGrp);
+    const estCom = estMuns.filter(items => !items.some(r => r[estKey] === 'Sem CND') && items.some(r => r[estKey] === 'Com CND')).length;
+    document.getElementById('kpi-cnd-est').textContent = estCom;
+    document.getElementById('kpi-cnd-est-sub').textContent = `de ${estMuns.length} municípios`;
+  } else {
+    document.getElementById('kpi-cnd-est').textContent = '—';
+    document.getElementById('kpi-cnd-est-sub').textContent = 'Dados indisponíveis';
+  }
+
+  // CND Federal — conta por MUNICÍPIO no mês atual
+  if (state.cndFederal.length) {
+    const MESES_K = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const fedMesKey = MESES_K[new Date().getMonth()];
+    const classifyFed = (v) => {
+      const s = (v || '').toString().trim().toLowerCase();
+      if (!s) return 'nd';
+      const isNao = s.includes('não') || s.includes('nao');
+      if (s.includes('enviado') && !isNao) return 'com';
+      if (isNao && s.includes('enviado') && !s.includes('-') && !s.includes('problema') && !s.includes('atraso')) return 'sem';
+      return 'atraso';
+    };
+    const fedGrp = {};
+    state.cndFederal.forEach(r => { if (!fedGrp[r.municipio]) fedGrp[r.municipio] = []; fedGrp[r.municipio].push(r); });
+    const fedMuns = Object.values(fedGrp);
+    const fedCom = fedMuns.filter(items => {
+      const vals = items.map(r => classifyFed(r[fedMesKey]));
+      return vals.every(v => v === 'com' || v === 'nd') && vals.some(v => v === 'com');
+    }).length;
+    document.getElementById('kpi-cnd-fed').textContent = fedCom;
+    document.getElementById('kpi-cnd-fed-sub').textContent = `de ${fedMuns.length} municípios`;
+  } else {
+    document.getElementById('kpi-cnd-fed').textContent = '—';
+    document.getElementById('kpi-cnd-fed-sub').textContent = 'Dados indisponíveis';
+  }
 
   // Risco
   const emRisco = state.risco.filter(r => r.risco === 'Alto' || r.risco === 'Médio').length;
