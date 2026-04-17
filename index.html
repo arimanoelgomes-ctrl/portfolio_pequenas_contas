@@ -810,8 +810,18 @@ function fetchCNDFederal() {
 // CARREGAMENTO DE DADOS
 // ============================================================
 async function loadAllData() {
+  // Sempre reseta para hoje ao atualizar
+  const today = new Date().toISOString().slice(0, 10);
+  const dp = document.getElementById('date-picker');
+  if (dp) { dp.value = today; dp.max = today; }
+  state.selectedDate = null;
+  const badge = document.getElementById('hist-badge');
+  if (badge) badge.style.display = 'none';
+  const btn = document.getElementById('btn-refresh');
+  if (btn) btn.textContent = '⟳ Atualizar';
+
   showLoading(true);
-  document.getElementById('btn-refresh').disabled = true;
+  if (btn) btn.disabled = true;
 
   const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
