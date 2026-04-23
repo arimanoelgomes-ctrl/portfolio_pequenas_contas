@@ -454,7 +454,7 @@
         <label for="date-picker">📅</label>
         <input type="date" id="date-picker" class="date-picker-input" onchange="onDateChange(this.value)">
       </div>
-      <button class="btn-refresh" id="btn-refresh" onclick="loadAllData()">⟳ Atualizar</button>
+      <button class="btn-refresh" id="btn-refresh" onclick="refreshToday()">⟳ Atualizar</button>
     </div>
   </div>
 </header>
@@ -809,8 +809,9 @@ function fetchCNDFederal() {
 // ============================================================
 // CARREGAMENTO DE DADOS
 // ============================================================
-async function loadAllData() {
-  // Sempre reseta para hoje ao atualizar
+
+// Chamado pelo botão "Atualizar": reseta para hoje e carrega
+function refreshToday() {
   const today = new Date().toISOString().slice(0, 10);
   const dp = document.getElementById('date-picker');
   if (dp) { dp.value = today; dp.max = today; }
@@ -819,7 +820,11 @@ async function loadAllData() {
   if (badge) badge.style.display = 'none';
   const btn = document.getElementById('btn-refresh');
   if (btn) btn.textContent = '⟳ Atualizar';
+  loadAllData();
+}
 
+async function loadAllData() {
+  const btn = document.getElementById('btn-refresh');
   showLoading(true);
   if (btn) btn.disabled = true;
 
