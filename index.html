@@ -645,6 +645,26 @@
   </div>
 </div>
 
+<!-- Modal: detalhes de chamados -->
+<div class="modal-overlay hidden" id="chamados-detail-modal" onclick="closeChamadosModal(event)">
+  <div class="modal-box" style="max-width:960px;width:95%">
+    <div class="modal-header">
+      <h3 id="chamados-modal-title">Chamados</h3>
+      <button class="modal-close" onclick="closeChamadosModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+      <table class="modal-table" style="font-size:.82rem">
+        <thead><tr>
+          <th style="width:110px">Código</th>
+          <th>Resumo</th>
+          <th style="width:160px">Status</th>
+        </tr></thead>
+        <tbody id="chamados-modal-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: demais municípios -->
 <div class="modal-overlay hidden" id="outro-modal" onclick="closeOutroModal(event)">
   <div class="modal-box">
@@ -675,7 +695,7 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], selectedDate: null };
+const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], chamadosIssues: [], selectedDate: null };
 // Abas que possuem versão histórica no servidor
 const HIST_SHEETS = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
 
@@ -828,7 +848,7 @@ async function loadAllData() {
   showLoading(true);
   if (btn) btn.disabled = true;
 
-  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes] = await Promise.allSettled([
+  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes, chamadosIssuesRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
     fetchSheet('NPS_Calculado'),
@@ -837,6 +857,7 @@ async function loadAllData() {
     fetchSheet('Colaboradores'),
     fetchSheet('Jira_Implantacoes'),
     fetchSheet('Jira_Implantacoes_Issues'),
+    fetchSheet('Jira_Chamados_Issues'),
   ]);
 
   if (jiraRes.status === 'fulfilled')  state.jira  = jiraRes.value;
@@ -865,6 +886,9 @@ async function loadAllData() {
 
   if (implIssuesRes.status === 'fulfilled') state.implantacoesIssues = implIssuesRes.value;
   else { console.warn('ImplantacoesIssues:', implIssuesRes.reason?.message); state.implantacoesIssues = []; }
+
+  if (chamadosIssuesRes.status === 'fulfilled') state.chamadosIssues = chamadosIssuesRes.value;
+  else { console.warn('ChamadosIssues:', chamadosIssuesRes.reason?.message); state.chamadosIssues = []; }
 
   // Timestamps
   const now = new Date().toLocaleString('pt-BR');
@@ -1090,6 +1114,34 @@ function closeImplModal(e) {
   document.getElementById('impl-detail-modal').classList.add('hidden');
 }
 
+function openChamadosModal(td) {
+  const mun  = td.dataset.mun;
+  const vert = td.dataset.vert;
+  const issues = state.chamadosIssues.filter(r => r.municipio === mun && r.vertical === vert);
+  document.getElementById('chamados-modal-title').textContent = `${mun} — ${vert}`;
+  const tbody = document.getElementById('chamados-modal-body');
+  if (!issues.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#94A3B8">Detalhes indisponíveis — execute o Apps Script para popular a aba Jira_Chamados_Issues.</td></tr>';
+  } else {
+    tbody.innerHTML = issues.map(r => {
+      const link = r.url
+        ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>`
+        : r.key;
+      return `<tr>
+        <td style="white-space:nowrap">${link}</td>
+        <td>${r.summary || '—'}</td>
+        <td><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;font-size:.78rem">${r.status || '—'}</span></td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('chamados-detail-modal').classList.remove('hidden');
+}
+
+function closeChamadosModal(e) {
+  if (e && e.target !== document.getElementById('chamados-detail-modal')) return;
+  document.getElementById('chamados-detail-modal').classList.add('hidden');
+}
+
 function renderChamadosPorCliente() {
   destroyChart('chart-0');
   const container = document.getElementById('view0-content');
@@ -1228,9 +1280,11 @@ function renderChamadosPorVertical() {
     const cells = verticais.map(v => {
       const val = munMap[m][v] || 0;
       const cellStyle = `padding:7px 12px;text-align:center;font-size:.82rem;border-right:1px solid #EDF2F7`;
+      const munAttr  = m.replace(/"/g, '&quot;');
+      const vertAttr = v.replace(/"/g, '&quot;');
       return val > 0
-        ? `<td style="${cellStyle}"><span style="color:#2B6CB0;font-weight:500">${val}</span></td>`
-        : `<td style="${cellStyle}">0</td>`;
+        ? `<td style="${cellStyle};cursor:pointer" data-mun="${munAttr}" data-vert="${vertAttr}" onclick="openChamadosModal(this)" title="Ver chamados: ${munAttr} · ${vertAttr}"><span style="color:#2B6CB0;font-weight:600;text-decoration:underline dotted">${val}</span></td>`
+        : `<td style="${cellStyle}">—</td>`;
     }).join('');
 
     return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">

@@ -105,6 +105,7 @@ const FIELD_MUNICIPIO = 'customfield_10331'; // Município (string)
 const FIELD_VERTICAL  = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
 const FIELD_PRAZO     = 'customfield_25801'; // Prazo contratual da implantação (date "YYYY-MM-DD")
 const SHEET_TAB_NAME  = 'Jira_Chamados';
+const CHAMADOS_ISSUES_TAB_NAME = 'Jira_Chamados_Issues';
 const IMPL_TAB_NAME         = 'Jira_Implantacoes';
 const IMPL_ISSUES_TAB_NAME  = 'Jira_Implantacoes_Issues';
 const CND_TAB_NAME    = 'CND_Municipios';
@@ -134,7 +135,7 @@ function onTimeTrigger() {
     const issues = fetchJiraIssues();
     Logger.log(`  Issues coletadas: ${issues.length}`);
     const rows = aggregateByMunicipioVertical(issues);
-    writeJiraChamados(rows);
+    writeJiraChamados(rows, issues);
     Logger.log(`  Jira: ${rows.length} linhas gravadas`);
     fetchAndStoreCND();
     fetchAndStoreCNDFederal();
@@ -809,7 +810,7 @@ function fetchJiraIssues() {
 
   const sessionCookie = getJiraSession(baseUrl, email, password);
   const headers = { 'Cookie': sessionCookie, 'Accept': 'application/json', 'Content-Type': 'application/json' };
-  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL];
+  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, 'status'];
 
   const allIssues = [];
   let startAt = 0;
@@ -859,9 +860,9 @@ function aggregateByMunicipioVertical(issues) {
 }
 
 // ────────────────────────────────────────────────────────────
-// GRAVAÇÃO — atualiza a aba Jira_Chamados
+// GRAVAÇÃO — atualiza a aba Jira_Chamados (e Jira_Chamados_Issues)
 // ────────────────────────────────────────────────────────────
-function writeJiraChamados(rows) {
+function writeJiraChamados(rows, issues) {
   const props   = PropertiesService.getScriptProperties();
   const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
   const ss      = SpreadsheetApp.openById(sheetId);
@@ -892,6 +893,33 @@ function writeJiraChamados(rows) {
   appendToHistory(ss, SHEET_TAB_NAME + '_Hist',
     ['municipio', 'vertical', 'total_chamados', 'atualizado_em'],
     rows, 3, dateStr);
+
+  // Issues individuais → aba Jira_Chamados_Issues
+  if (issues && issues.length > 0) {
+    const baseUrl = PropertiesService.getScriptProperties().getProperty('JIRA_BASE_URL') || '';
+    const ts = new Date().toISOString();
+    let issuesTab = ss.getSheetByName(CHAMADOS_ISSUES_TAB_NAME);
+    if (!issuesTab) { issuesTab = ss.insertSheet(CHAMADOS_ISSUES_TAB_NAME); Logger.log(`  Aba "${CHAMADOS_ISSUES_TAB_NAME}" criada.`); }
+
+    const issuesHeader = [['key','url','summary','status','municipio','vertical','atualizado_em']];
+    issuesTab.getRange(1, 1, 1, 7).setValues(issuesHeader);
+    const lastIssue = issuesTab.getLastRow();
+    if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 7).clearContent();
+
+    const issueRows = issues.map(issue => {
+      const municipio = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
+      const vObj      = issue.fields[FIELD_VERTICAL];
+      const vertical  = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
+      const status    = (issue.fields.status && issue.fields.status.name) ? issue.fields.status.name : '';
+      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, ts];
+    }).sort((a, b) => a[4].localeCompare(b[4], 'pt-BR') || a[5].localeCompare(b[5], 'pt-BR'));
+
+    if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 7).setValues(issueRows);
+    const ih = issuesTab.getRange(1, 1, 1, 7);
+    ih.setBackground('#1E3A5F'); ih.setFontColor('#FFFFFF'); ih.setFontWeight('bold');
+    issuesTab.setFrozenRows(1);
+    Logger.log(`  "${CHAMADOS_ISSUES_TAB_NAME}": ${issueRows.length} issues individuais gravados.`);
+  }
 }
 
 // ────────────────────────────────────────────────────────────
