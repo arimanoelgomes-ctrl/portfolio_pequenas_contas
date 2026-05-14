@@ -657,7 +657,7 @@
         <thead><tr>
           <th style="width:110px">Código</th>
           <th>Resumo</th>
-          <th style="width:160px">Status</th>
+          <th style="width:200px;text-align:center">Status</th>
         </tr></thead>
         <tbody id="chamados-modal-body"></tbody>
       </table>
@@ -1130,7 +1130,7 @@ function openChamadosModal(td) {
       return `<tr>
         <td style="white-space:nowrap">${link}</td>
         <td>${r.summary || '—'}</td>
-        <td><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;font-size:.78rem">${r.status || '—'}</span></td>
+        <td style="text-align:center"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
       </tr>`;
     }).join('');
   }
