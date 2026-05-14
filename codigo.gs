@@ -101,9 +101,10 @@ const JQL = `category = "Projetos ativos de atendimento - Filial" AND resolution
 // JQL para implantações pendentes e em andamento
 const JQL_IMPLANTACOES = `(labels not in (implantaçãoRecusada) OR labels is EMPTY) AND issuetype = Implantação AND "Equipe responsável" not in (Revenda, Parceiros, Produto, "Produto extensões", Tribunais) AND resolution = Unresolved AND status not in ("Produto contratado", Reprovada) AND (Município in ("Abdon Batista", Agrolândia, "Anita Garibaldi", Angelina, Anchieta, "Balneário Arroio do Silva", "Balneário Barra do Sul", "Balneário Camboriú", "Balneário Piçarras", Bandeirante, "Barra Bonita", "Barra Velha", "Bela Vista do Toldo", Belmonte, "Benedito Novo", Brunópolis, Caçador, Calmon, "Campo Alegre", "Capão Alto", Chapecó, Concórdia, "Dona Emma", "Erval Velho", Ermo, "Frei Rogério", Iraceminha, Imbuia, Ipira, Ipuaçu, Itá, Itajaí, Jupiá, Lacerdópolis, "Lajeado Grande", "Leoberto Leal", "Lindóia do Sul", "Luiz Alves", Luzerna, Mafra, Massaranduba, Meleiro, Modelo, "Morro da Fumaça", "Morro Grande", Penha, Peritiba, "Pescaria Brava", Pomerode, "Praia Grande", "Rio do Sul", "Rio Fortuna", "Rio Rufino", Saltinho, "Santa Terezinha", "São Bernardino", "São Bonifácio", "São Cristovão do Sul", "São João do Oeste", "São José do Cedro", "São Martinho", "São Miguel da Boa Vista", "São Pedro de Alcântara", Tangará, "Treze de Maio", Tigrinhos, Timbó, Treviso, Videira) OR Município in ("Campos Novos") AND Entidade = "CIMPLASC - CONSORCIO INTERMUNICIPAL DE SANEAMENTO BASICO MEIO AMBIENTE ATENCAO A SANIDADE DOS PRODUTOS DE ORIGEM AGROPECUARIA SEGURANCA ALIMENTAR - Campos Novos/SC") ORDER BY status DESC, cf[21500] DESC, issuetype ASC, Município ASC, cf[10300] ASC, cf[22902] ASC, assignee DESC`;
 
-const FIELD_MUNICIPIO = 'customfield_10331'; // Município (string)
-const FIELD_VERTICAL  = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
-const FIELD_PRAZO     = 'customfield_25801'; // Prazo contratual da implantação (date "YYYY-MM-DD")
+const FIELD_MUNICIPIO        = 'customfield_10331'; // Município (string)
+const FIELD_VERTICAL         = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
+const FIELD_PRAZO            = 'customfield_25801'; // Prazo contratual da implantação (date "YYYY-MM-DD")
+const FIELD_SLO_ATENDIMENTO  = 'customfield_24813'; // SLO Atendimento (objeto com ongoingCycle/completedCycles)
 const SHEET_TAB_NAME  = 'Jira_Chamados';
 const CHAMADOS_ISSUES_TAB_NAME = 'Jira_Chamados_Issues';
 const IMPL_TAB_NAME         = 'Jira_Implantacoes';
@@ -810,7 +811,7 @@ function fetchJiraIssues() {
 
   const sessionCookie = getJiraSession(baseUrl, email, password);
   const headers = { 'Cookie': sessionCookie, 'Accept': 'application/json', 'Content-Type': 'application/json' };
-  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, 'status'];
+  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, 'status', FIELD_SLO_ATENDIMENTO];
 
   const allIssues = [];
   let startAt = 0;
@@ -846,17 +847,28 @@ function aggregateByMunicipioVertical(issues) {
   const ts  = new Date().toISOString();
 
   issues.forEach(issue => {
-    const municipio = issue.fields[FIELD_MUNICIPIO] || 'Não informado';
-    const vObj      = issue.fields[FIELD_VERTICAL];
-    const vertical  = (vObj && vObj.value) ? vObj.value : 'Não informado';
-    const key       = `${municipio}||${vertical}`;
-    map[key]        = (map[key] || 0) + 1;
+    const municipio   = issue.fields[FIELD_MUNICIPIO] || 'Não informado';
+    const vObj        = issue.fields[FIELD_VERTICAL];
+    const vertical    = (vObj && vObj.value) ? vObj.value : 'Não informado';
+    const sloBreached = _isSloBreached(issue.fields[FIELD_SLO_ATENDIMENTO]) ? 1 : 0;
+    const key         = `${municipio}||${vertical}`;
+    if (!map[key]) map[key] = { count: 0, slo: 0 };
+    map[key].count++;
+    map[key].slo += sloBreached;
   });
 
-  return Object.entries(map).map(([key, count]) => {
+  return Object.entries(map).map(([key, d]) => {
     const [municipio, vertical] = key.split('||');
-    return [municipio, vertical, count, ts];
+    return [municipio, vertical, d.count, d.slo, ts];
   });
+}
+
+// Verifica se um campo SLO do Jira indica violação (breached)
+function _isSloBreached(sloField) {
+  if (!sloField) return false;
+  if (sloField.ongoingCycle   && sloField.ongoingCycle.breached === true)             return true;
+  if (sloField.completedCycles && sloField.completedCycles.some(c => c.breached === true)) return true;
+  return false;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -869,18 +881,18 @@ function writeJiraChamados(rows, issues) {
   let tab       = ss.getSheetByName(SHEET_TAB_NAME);
   if (!tab) { tab = ss.insertSheet(SHEET_TAB_NAME); Logger.log(`  Aba "${SHEET_TAB_NAME}" criada.`); }
 
-  // Cabeçalho
-  tab.getRange(1, 1, 1, 4).setValues([['municipio','vertical','total_chamados','atualizado_em']]);
+  // Cabeçalho (5 colunas — inclui slo_estourado)
+  tab.getRange(1, 1, 1, 5).setValues([['municipio','vertical','total_chamados','slo_estourado','atualizado_em']]);
 
   // Limpar dados anteriores
   const last = tab.getLastRow();
-  if (last > 1) tab.getRange(2, 1, last - 1, 4).clearContent();
+  if (last > 1) tab.getRange(2, 1, last - 1, 5).clearContent();
 
   // Gravar
-  if (rows.length > 0) tab.getRange(2, 1, rows.length, 4).setValues(rows);
+  if (rows.length > 0) tab.getRange(2, 1, rows.length, 5).setValues(rows);
 
   // Estilo no cabeçalho
-  const h = tab.getRange(1, 1, 1, 4);
+  const h = tab.getRange(1, 1, 1, 5);
   h.setBackground('#1E3A5F');
   h.setFontColor('#FFFFFF');
   h.setFontWeight('bold');
@@ -891,31 +903,32 @@ function writeJiraChamados(rows, issues) {
   // Histórico diário
   const dateStr = new Date().toISOString().slice(0, 10);
   appendToHistory(ss, SHEET_TAB_NAME + '_Hist',
-    ['municipio', 'vertical', 'total_chamados', 'atualizado_em'],
-    rows, 3, dateStr);
+    ['municipio', 'vertical', 'total_chamados', 'slo_estourado', 'atualizado_em'],
+    rows, 4, dateStr);
 
-  // Issues individuais → aba Jira_Chamados_Issues
+  // Issues individuais → aba Jira_Chamados_Issues (8 colunas — inclui slo_estourado)
   if (issues && issues.length > 0) {
     const baseUrl = PropertiesService.getScriptProperties().getProperty('JIRA_BASE_URL') || '';
     const ts = new Date().toISOString();
     let issuesTab = ss.getSheetByName(CHAMADOS_ISSUES_TAB_NAME);
     if (!issuesTab) { issuesTab = ss.insertSheet(CHAMADOS_ISSUES_TAB_NAME); Logger.log(`  Aba "${CHAMADOS_ISSUES_TAB_NAME}" criada.`); }
 
-    const issuesHeader = [['key','url','summary','status','municipio','vertical','atualizado_em']];
-    issuesTab.getRange(1, 1, 1, 7).setValues(issuesHeader);
+    const issuesHeader = [['key','url','summary','status','municipio','vertical','slo_estourado','atualizado_em']];
+    issuesTab.getRange(1, 1, 1, 8).setValues(issuesHeader);
     const lastIssue = issuesTab.getLastRow();
-    if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 7).clearContent();
+    if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 8).clearContent();
 
     const issueRows = issues.map(issue => {
-      const municipio = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
-      const vObj      = issue.fields[FIELD_VERTICAL];
-      const vertical  = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
-      const status    = (issue.fields.status && issue.fields.status.name) ? issue.fields.status.name : '';
-      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, ts];
+      const municipio   = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
+      const vObj        = issue.fields[FIELD_VERTICAL];
+      const vertical    = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
+      const status      = (issue.fields.status && issue.fields.status.name) ? issue.fields.status.name : '';
+      const sloBreached = _isSloBreached(issue.fields[FIELD_SLO_ATENDIMENTO]) ? 'Estourado' : 'OK';
+      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, sloBreached, ts];
     }).sort((a, b) => a[4].localeCompare(b[4], 'pt-BR') || a[5].localeCompare(b[5], 'pt-BR'));
 
-    if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 7).setValues(issueRows);
-    const ih = issuesTab.getRange(1, 1, 1, 7);
+    if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 8).setValues(issueRows);
+    const ih = issuesTab.getRange(1, 1, 1, 8);
     ih.setBackground('#1E3A5F'); ih.setFontColor('#FFFFFF'); ih.setFontWeight('bold');
     issuesTab.setFrozenRows(1);
     Logger.log(`  "${CHAMADOS_ISSUES_TAB_NAME}": ${issueRows.length} issues individuais gravados.`);
@@ -940,6 +953,11 @@ function appendToHistory(ss, histTabName, headerRow, newRows, dateColIdx, dateSt
     const hdr = histTab.getRange(1, 1, 1, headerRow.length);
     hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
     histTab.setFrozenRows(1);
+  } else if (histTab.getLastColumn() < headerRow.length) {
+    // Esquema foi estendido — atualizar cabeçalho
+    histTab.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
+    const hdr = histTab.getRange(1, 1, 1, headerRow.length);
+    hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
   }
 
   // Data de corte para retenção (90 dias atrás)

@@ -657,6 +657,7 @@
         <thead><tr>
           <th style="width:110px">Código</th>
           <th>Resumo</th>
+          <th style="width:110px;text-align:center">SLO</th>
           <th style="width:200px;text-align:center">Status</th>
         </tr></thead>
         <tbody id="chamados-modal-body"></tbody>
@@ -1121,15 +1122,22 @@ function openChamadosModal(td) {
   document.getElementById('chamados-modal-title').textContent = `${mun} — ${vert}`;
   const tbody = document.getElementById('chamados-modal-body');
   if (!issues.length) {
-    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#94A3B8">Detalhes indisponíveis — execute o Apps Script para popular a aba Jira_Chamados_Issues.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#94A3B8">Detalhes indisponíveis — execute o Apps Script para popular a aba Jira_Chamados_Issues.</td></tr>';
   } else {
     tbody.innerHTML = issues.map(r => {
       const link = r.url
         ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>`
         : r.key;
+      const slo = r.slo_estourado;
+      const sloBadge = slo === 'Estourado'
+        ? `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:#FEE2E2;color:#B91C1C;font-size:.76rem;font-weight:600;white-space:nowrap">Estourado</span>`
+        : slo === 'OK'
+          ? `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:#DCFCE7;color:#15803D;font-size:.76rem;white-space:nowrap">OK</span>`
+          : `<span style="color:#94A3B8;font-size:.76rem">—</span>`;
       return `<tr>
         <td style="white-space:nowrap">${link}</td>
         <td>${r.summary || '—'}</td>
+        <td style="text-align:left">${sloBadge}</td>
         <td style="text-align:left"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
       </tr>`;
     }).join('');
@@ -1253,15 +1261,19 @@ function renderChamadosPorVertical() {
   // Coletar verticais únicas ordenadas
   const verticais = [...new Set(state.jira.map(r => r.vertical || 'Não informado'))].sort();
 
-  // Agregar por município × vertical
+  // Agregar por município × vertical (total + slo_estourado)
   const munMap = {};
+  const sloMap = {};
   state.jira.forEach(r => {
     const m = r.municipio || 'Não informado';
     const v = r.vertical   || 'Não informado';
     if (!munMap[m]) munMap[m] = { total: 0 };
-    const n = parseInt(r.total_chamados) || 0;
+    if (!sloMap[m]) sloMap[m] = {};
+    const n   = parseInt(r.total_chamados) || 0;
+    const slo = parseInt(r.slo_estourado)  || 0;
     munMap[m][v] = (munMap[m][v] || 0) + n;
     munMap[m].total += n;
+    sloMap[m][v] = (sloMap[m][v] || 0) + slo;
   });
 
   // Municípios ordenados por total desc
@@ -1286,13 +1298,20 @@ function renderChamadosPorVertical() {
     const bg = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
     const cells = verticais.map(v => {
       const val      = munMap[m][v] || 0;
+      const slo      = (sloMap[m] && sloMap[m][v]) || 0;
       const munAttr  = m.replace(/"/g, '&quot;');
       const vertAttr = v.replace(/"/g, '&quot;');
       if (!val) return `<td style="${cb};color:#CBD5E0">—</td>`;
-      return `<td style="${cb};background:#EFF6FF;color:#2563EB;font-weight:600;border:1px solid #BFDBFE;cursor:pointer"
+      const bg     = slo > 0 ? '#FEE2E2' : '#EFF6FF';
+      const color  = slo > 0 ? '#B91C1C' : '#2563EB';
+      const border = slo > 0 ? '#FECACA' : '#BFDBFE';
+      const tip    = slo > 0
+        ? `${munAttr} · ${vertAttr} — ${slo} com SLO estourado`
+        : `Ver chamados: ${munAttr} · ${vertAttr}`;
+      return `<td style="${cb};background:${bg};color:${color};font-weight:600;border:1px solid ${border};cursor:pointer"
                 data-mun="${munAttr}" data-vert="${vertAttr}"
                 onclick="openChamadosModal(this)"
-                title="Ver chamados: ${munAttr} · ${vertAttr}">${val}</td>`;
+                title="${tip}">${val}</td>`;
     }).join('');
 
     return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
@@ -1308,6 +1327,14 @@ function renderChamadosPorVertical() {
       ? `<td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#2563EB;background:#EDF2F7;border-right:1px solid #CBD5E0">${tot}</td>`
       : `<td style="padding:6px 8px;text-align:center;font-size:.78rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
   }).join('');
+
+  const legendaHtml = `
+    <div style="display:flex;gap:16px;margin-top:12px;font-size:.73rem;color:var(--text-muted);flex-wrap:wrap;align-items:center">
+      <strong style="color:var(--text)">Legenda:</strong>
+      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEE2E2;border:1px solid #FECACA"></span> Com SLO estourado</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span> Sem SLO estourado</span>
+      <span style="color:#94A3B8;font-style:italic">Clique na célula para ver os chamados</span>
+    </div>`;
 
   container.innerHTML = `
     <div style="overflow-x:auto;margin-top:8px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
@@ -1328,7 +1355,8 @@ function renderChamadosPorVertical() {
           </tr>
         </tfoot>
       </table>
-    </div>`;
+    </div>
+    ${legendaHtml}`;
 }
 
 // ============================================================
