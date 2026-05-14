@@ -871,6 +871,29 @@ function _isSloBreached(sloField) {
   return false;
 }
 
+// Retorna horas restantes (positivo) ou excedidas (negativo) do SLO
+// Usa o ciclo em andamento; null se não houver dado
+function _getSloHoras(sloField) {
+  if (!sloField) return null;
+  const cycle = sloField.ongoingCycle;
+  if (!cycle || cycle.remainingTime === undefined || cycle.remainingTime === null) return null;
+  const millis = (cycle.remainingTime.millis !== undefined) ? cycle.remainingTime.millis : null;
+  if (millis === null) return null;
+  return millis / 3600000; // ms → horas (negativo = estourado)
+}
+
+// Formata horas para exibição: "+2h 30min" ou "-1h 15min"
+function _formatSloHoras(horas) {
+  if (horas === null || horas === undefined) return '—';
+  const abs  = Math.abs(horas);
+  const h    = Math.floor(abs);
+  const m    = Math.round((abs - h) * 60);
+  const sign = horas < 0 ? '-' : '+';
+  if (h === 0) return sign + m + 'min';
+  if (m === 0) return sign + h + 'h';
+  return sign + h + 'h ' + m + 'min';
+}
+
 // ────────────────────────────────────────────────────────────
 // GRAVAÇÃO — atualiza a aba Jira_Chamados (e Jira_Chamados_Issues)
 // ────────────────────────────────────────────────────────────
@@ -913,18 +936,18 @@ function writeJiraChamados(rows, issues) {
     let issuesTab = ss.getSheetByName(CHAMADOS_ISSUES_TAB_NAME);
     if (!issuesTab) { issuesTab = ss.insertSheet(CHAMADOS_ISSUES_TAB_NAME); Logger.log(`  Aba "${CHAMADOS_ISSUES_TAB_NAME}" criada.`); }
 
-    const issuesHeader = [['key','url','summary','status','municipio','vertical','slo_estourado','atualizado_em']];
+    const issuesHeader = [['key','url','summary','status','municipio','vertical','slo_horas','atualizado_em']];
     issuesTab.getRange(1, 1, 1, 8).setValues(issuesHeader);
     const lastIssue = issuesTab.getLastRow();
     if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 8).clearContent();
 
     const issueRows = issues.map(issue => {
-      const municipio   = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
-      const vObj        = issue.fields[FIELD_VERTICAL];
-      const vertical    = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
-      const status      = (issue.fields.status && issue.fields.status.name) ? issue.fields.status.name : '';
-      const sloBreached = _isSloBreached(issue.fields[FIELD_SLO_ATENDIMENTO]) ? 'Estourado' : 'OK';
-      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, sloBreached, ts];
+      const municipio = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
+      const vObj      = issue.fields[FIELD_VERTICAL];
+      const vertical  = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
+      const status    = (issue.fields.status && issue.fields.status.name) ? issue.fields.status.name : '';
+      const sloHoras  = _formatSloHoras(_getSloHoras(issue.fields[FIELD_SLO_ATENDIMENTO]));
+      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, sloHoras, ts];
     }).sort((a, b) => a[4].localeCompare(b[4], 'pt-BR') || a[5].localeCompare(b[5], 'pt-BR'));
 
     if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 8).setValues(issueRows);

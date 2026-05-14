@@ -1128,16 +1128,16 @@ function openChamadosModal(td) {
       const link = r.url
         ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>`
         : r.key;
-      const slo = r.slo_estourado;
-      const sloBadge = slo === 'Estourado'
-        ? `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:#FEE2E2;color:#B91C1C;font-size:.76rem;font-weight:600;white-space:nowrap">Estourado</span>`
-        : slo === 'OK'
-          ? `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:#DCFCE7;color:#15803D;font-size:.76rem;white-space:nowrap">OK</span>`
-          : `<span style="color:#94A3B8;font-size:.76rem">—</span>`;
+      const sloVal     = r.slo_horas || '—';
+      const sloExceded = sloVal.startsWith('-');
+      const sloColor   = sloVal === '—' ? '#94A3B8' : sloExceded ? '#B91C1C' : '#15803D';
+      const sloBg      = sloVal === '—' ? 'transparent' : sloExceded ? '#FEE2E2' : '#DCFCE7';
+      const sloBorder  = sloVal === '—' ? 'transparent' : sloExceded ? '#FECACA' : '#86EFAC';
+      const sloBadge   = `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span>`;
       return `<tr>
         <td style="white-space:nowrap">${link}</td>
         <td>${r.summary || '—'}</td>
-        <td style="text-align:left">${sloBadge}</td>
+        <td style="text-align:center">${sloBadge}</td>
         <td style="text-align:left"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
       </tr>`;
     }).join('');
