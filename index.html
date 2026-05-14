@@ -1101,8 +1101,8 @@ function openImplModal(td) {
       return `<tr>
         <td style="white-space:nowrap">${link}</td>
         <td>${r.summary || '—'}</td>
-        <td style="text-align:center"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
-        <td style="text-align:center;white-space:nowrap">${prazo}</td>
+        <td><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
+        <td style="white-space:nowrap">${prazo}</td>
       </tr>`;
     }).join('');
   }
@@ -1130,7 +1130,7 @@ function openChamadosModal(td) {
       return `<tr>
         <td style="white-space:nowrap">${link}</td>
         <td>${r.summary || '—'}</td>
-        <td style="text-align:center"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
+        <td><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
       </tr>`;
     }).join('');
   }
