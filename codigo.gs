@@ -873,25 +873,28 @@ function _sloEntry(sloField) {
 function _isSloBreached(sloField) {
   const f = _sloEntry(sloField);
   if (!f) return false;
-  if (f.ongoingCycle    && f.ongoingCycle.breached === true)              return true;
-  if (f.completedCycles && f.completedCycles.some(c => c.breached === true)) return true;
+  if (f.ongoingCycle && f.ongoingCycle.breached === true) return true;
+  // Jira DC usa 'completeCycles' (sem 'd') — verificar ambos por segurança
+  const cycles = f.completeCycles || f.completedCycles || [];
+  if (cycles.some(c => c.breached === true)) return true;
   return false;
 }
 
 // Retorna horas restantes (positivo) ou excedidas (negativo) do SLO
-// Usa o ciclo em andamento; null se não houver dado
+// remainingTime no Jira DC é um número direto em ms (não objeto {millis:...})
 function _getSloHoras(sloField) {
   const f = _sloEntry(sloField);
   if (!f) return null;
   const cycle = f.ongoingCycle;
   if (!cycle) return null;
-  if (cycle.remainingTime && cycle.remainingTime.millis !== undefined) {
-    return cycle.remainingTime.millis / 3600000; // ms → horas (negativo = estourado)
+  // remainingTime pode ser número (ms) ou objeto {millis:...}
+  const rt = cycle.remainingTime;
+  if (rt !== undefined && rt !== null) {
+    const millis = (typeof rt === 'object') ? rt.millis : rt;
+    if (millis !== undefined && millis !== null) return millis / 3600000;
   }
-  // Fallback: calcular pela diferença entre breachTime e agora
-  if (cycle.breachTime && cycle.breachTime.epochMillis !== undefined) {
-    return (cycle.breachTime.epochMillis - Date.now()) / 3600000;
-  }
+  // Fallback: breachedDate (epoch ms) − agora
+  if (cycle.breachedDate) return (cycle.breachedDate - Date.now()) / 3600000;
   return null;
 }
 
