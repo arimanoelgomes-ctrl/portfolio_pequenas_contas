@@ -1115,10 +1115,24 @@ function closeImplModal(e) {
   document.getElementById('impl-detail-modal').classList.add('hidden');
 }
 
+// Converte string de SLO ("-1h 30min", "+7h 56min", "—") para número de horas
+function _parseSloStr(s) {
+  if (!s || s === '—') return Infinity; // sem dado vai para o fim
+  const neg    = s.startsWith('-');
+  const abs    = s.replace(/^[+-]/, '');
+  const hMatch = abs.match(/(\d+)h/);
+  const mMatch = abs.match(/(\d+)min/);
+  const val    = (hMatch ? parseInt(hMatch[1]) : 0) + (mMatch ? parseInt(mMatch[1]) / 60 : 0);
+  return neg ? -val : val;
+}
+
 function openChamadosModal(td) {
   const mun  = td.dataset.mun;
   const vert = td.dataset.vert;
-  const issues = state.chamadosIssues.filter(r => r.municipio === mun && r.vertical === vert);
+  // Ordena do SLO mais negativo (mais excedido) ao mais positivo; sem dado no fim
+  const issues = state.chamadosIssues
+    .filter(r => r.municipio === mun && r.vertical === vert)
+    .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
   document.getElementById('chamados-modal-title').textContent = `${mun} — ${vert}`;
   const tbody = document.getElementById('chamados-modal-body');
   if (!issues.length) {
