@@ -863,23 +863,53 @@ function aggregateByMunicipioVertical(issues) {
   });
 }
 
+// Normaliza o campo SLO: Jira DC pode retornar array ou objeto direto
+function _sloEntry(sloField) {
+  if (!sloField) return null;
+  return Array.isArray(sloField) ? (sloField[0] || null) : sloField;
+}
+
 // Verifica se um campo SLO do Jira indica violação (breached)
 function _isSloBreached(sloField) {
-  if (!sloField) return false;
-  if (sloField.ongoingCycle   && sloField.ongoingCycle.breached === true)             return true;
-  if (sloField.completedCycles && sloField.completedCycles.some(c => c.breached === true)) return true;
+  const f = _sloEntry(sloField);
+  if (!f) return false;
+  if (f.ongoingCycle    && f.ongoingCycle.breached === true)              return true;
+  if (f.completedCycles && f.completedCycles.some(c => c.breached === true)) return true;
   return false;
 }
 
 // Retorna horas restantes (positivo) ou excedidas (negativo) do SLO
 // Usa o ciclo em andamento; null se não houver dado
 function _getSloHoras(sloField) {
-  if (!sloField) return null;
-  const cycle = sloField.ongoingCycle;
-  if (!cycle || cycle.remainingTime === undefined || cycle.remainingTime === null) return null;
-  const millis = (cycle.remainingTime.millis !== undefined) ? cycle.remainingTime.millis : null;
-  if (millis === null) return null;
-  return millis / 3600000; // ms → horas (negativo = estourado)
+  const f = _sloEntry(sloField);
+  if (!f) return null;
+  const cycle = f.ongoingCycle;
+  if (!cycle) return null;
+  if (cycle.remainingTime && cycle.remainingTime.millis !== undefined) {
+    return cycle.remainingTime.millis / 3600000; // ms → horas (negativo = estourado)
+  }
+  // Fallback: calcular pela diferença entre breachTime e agora
+  if (cycle.breachTime && cycle.breachTime.epochMillis !== undefined) {
+    return (cycle.breachTime.epochMillis - Date.now()) / 3600000;
+  }
+  return null;
+}
+
+// Diagnóstico: loga a estrutura bruta do campo SLO de um issue específico
+function diagnosticarSloField() {
+  const props   = PropertiesService.getScriptProperties();
+  const baseUrl = props.getProperty('JIRA_BASE_URL') || '';
+  const email   = props.getProperty('JIRA_EMAIL')    || '';
+  const token   = props.getProperty('JIRA_API_TOKEN') || '';
+  const sessionCookie = getJiraSession(baseUrl, email, token);
+  const headers = { 'Cookie': sessionCookie, 'Accept': 'application/json', 'Content-Type': 'application/json' };
+  const body    = JSON.stringify({ jql: JQL, fields: [FIELD_SLO_ATENDIMENTO, FIELD_MUNICIPIO], maxResults: 3, startAt: 0 });
+  const resp    = UrlFetchApp.fetch(baseUrl + '/rest/api/2/search', { method: 'post', headers, payload: body, muteHttpExceptions: true });
+  const data    = JSON.parse(resp.getContentText());
+  data.issues.forEach(issue => {
+    Logger.log('Issue: ' + issue.key);
+    Logger.log('SLO raw: ' + JSON.stringify(issue.fields[FIELD_SLO_ATENDIMENTO]));
+  });
 }
 
 // Formata horas para exibição: "+2h 30min" ou "-1h 15min"
