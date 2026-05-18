@@ -2744,18 +2744,6 @@ function _updateImplPivot() {
     ? Array.from(vertEl.selectedOptions).map(o => o.value).filter(Boolean)
     : [];
 
-  // prodMatchSet: células (mun||vert) que TÊM issues com QUALQUER dos termos de produto
-  let prodMatchSet = null;
-  if (prodTerms.length) {
-    prodMatchSet = new Set();
-    state.implantacoesIssues.forEach(r => {
-      const sumL = (r.summary || '').toLowerCase();
-      if (prodTerms.some(t => sumL.includes(t))) {
-        prodMatchSet.add((r.municipio || '').trim() + '||' + (r.vertical || '').trim());
-      }
-    });
-  }
-
   const { munMap, municipios } = _implData;
 
   // Verticais visíveis — filtro Vertical opera em colunas
@@ -2778,22 +2766,44 @@ function _updateImplPivot() {
     return true;
   });
 
-  // Função auxiliar: decide se uma célula (m, v) deve ser exibida dado o filtro de produto
-  // include → exibe só células que TÊM o produto
-  // exclude → exibe só células que NÃO TÊM o produto (ou que não têm issues nenhuma)
-  const cellPassesProd = (m, v) => {
-    if (!prodMatchSet) return true;
-    const has = prodMatchSet.has(m + '||' + v);
-    return modeProd === 'exclude' ? !has : has;
-  };
+  // filteredMap: quando há filtro de produto, reconstrói os contadores
+  // célula a célula a partir das issues individuais filtradas.
+  // Sem filtro de produto, getCell() devolve os dados originais do munMap.
+  let filteredMap = null;
+  if (prodTerms.length) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    filteredMap = {};
+    state.implantacoesIssues.forEach(r => {
+      const sumL = (r.summary || '').toLowerCase();
+      const matchesAny = prodTerms.some(t => sumL.includes(t));
+      const passes = modeProd === 'exclude' ? !matchesAny : matchesAny;
+      if (!passes) return;
+      const m = (r.municipio || '').trim();
+      const v = (r.vertical  || '').trim();
+      if (!filteredMap[m]) filteredMap[m] = {};
+      if (!filteredMap[m][v]) filteredMap[m][v] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
+      filteredMap[m][v].total++;
+      if (r.prazo) {
+        const d = new Date(r.prazo);
+        if (!isNaN(d.getTime())) { if (d < today) filteredMap[m][v].atrasados++; else filteredMap[m][v].no_prazo++; }
+        else filteredMap[m][v].sem_prazo++;
+      } else {
+        filteredMap[m][v].sem_prazo++;
+      }
+    });
+  }
 
-  // Totais de rodapé — considera apenas células que passam no filtro de produto
+  // Retorna dados da célula (filtrados ou originais)
+  const getCell = (m, v) => filteredMap
+    ? (filteredMap[m] && filteredMap[m][v] && filteredMap[m][v].total > 0 ? filteredMap[m][v] : null)
+    : (munMap[m] && munMap[m][v]);
+
+  // Totais de rodapé — recalculados sobre células visíveis após filtro de produto
   const footTotais = {};
   verticais.forEach(v => {
     footTotais[v] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
     munFiltrados.forEach(m => {
-      if (!cellPassesProd(m, v)) return;
-      const c = munMap[m][v];
+      const c = getCell(m, v);
       if (!c) return;
       footTotais[v].total     += c.total;
       footTotais[v].atrasados += c.atrasados;
@@ -2817,13 +2827,10 @@ function _updateImplPivot() {
     `<th style="${thStyle}" title="${v}">${v.length > 9 ? v.slice(0,8)+'…' : v}</th>`).join('');
 
   const bodyRows = munFiltrados.map((m, ri) => {
-    const bg  = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
-    const mun = munMap[m];
+    const bg = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
 
     const cells = verticais.map(v => {
-      // Produto opera em célula: se não passa, mostra "—"
-      if (!cellPassesProd(m, v)) return `<td style="${cb};color:#CBD5E0">—</td>`;
-      const cell = mun[v];
+      const cell = getCell(m, v);
       if (!cell || cell.total === 0) return `<td style="${cb};color:#CBD5E0">—</td>`;
       const s = implCellStyle(cell);
       const tipParts = [];
@@ -2835,10 +2842,10 @@ function _updateImplPivot() {
       return `<td style="${cb};background:${s.bg};color:${s.text};font-weight:600;border:1px solid ${s.border};cursor:pointer" title="${tipParts.join(' · ')}" data-mun="${munAttr}" data-vert="${vertAttr}" onclick="openImplModal(this)">${cell.total}</td>`;
     }).join('');
 
-    // Total e cor da linha considerando apenas células visíveis
-    const linhaTotal  = verticais.reduce((s, v) => cellPassesProd(m, v) ? s + ((mun[v] && mun[v].total)     || 0) : s, 0);
-    const linhaAtraso = verticais.reduce((s, v) => cellPassesProd(m, v) ? s + ((mun[v] && mun[v].atrasados) || 0) : s, 0);
-    const linhaPrazo  = verticais.reduce((s, v) => cellPassesProd(m, v) ? s + ((mun[v] && mun[v].no_prazo)  || 0) : s, 0);
+    // Total e cor da linha a partir dos dados já filtrados
+    const linhaTotal  = verticais.reduce((s, v) => { const c = getCell(m, v); return c ? s + c.total     : s; }, 0);
+    const linhaAtraso = verticais.reduce((s, v) => { const c = getCell(m, v); return c ? s + c.atrasados : s; }, 0);
+    const linhaPrazo  = verticais.reduce((s, v) => { const c = getCell(m, v); return c ? s + c.no_prazo  : s; }, 0);
     const totalCor = linhaAtraso > 0 ? '#B91C1C' : linhaPrazo > 0 ? '#15803D' : '#475569';
 
     return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
