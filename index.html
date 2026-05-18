@@ -1127,7 +1127,19 @@ function closeOutroModal(e) {
 function openImplModal(td) {
   const mun  = td.dataset.mun;
   const vert = td.dataset.vert;
-  const issues = state.implantacoesIssues.filter(r => r.municipio === mun && r.vertical === vert);
+
+  // Aplica o mesmo filtro de Produto ativo no pivot
+  const fProdRaw  = (document.getElementById('impl-f-prod') || {}).value || '';
+  const modeProd  = (document.getElementById('impl-f-prod-mode') || {}).dataset?.mode || 'include';
+  const prodTerms = fProdRaw.toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+
+  const issues = state.implantacoesIssues.filter(r => {
+    if (r.municipio !== mun || r.vertical !== vert) return false;
+    if (!prodTerms.length) return true;
+    const sumL = (r.summary || '').toLowerCase();
+    const matchesAny = prodTerms.some(t => sumL.includes(t));
+    return modeProd === 'exclude' ? !matchesAny : matchesAny;
+  });
   document.getElementById('impl-modal-title').textContent = `${mun} — ${vert}`;
   const tbody = document.getElementById('impl-modal-body');
   if (!issues.length) {
