@@ -2594,24 +2594,38 @@ function renderImplantacoes() {
   // --- Filtros ---
   const vertOpts = IMPL_VERTICAIS.map(v => `<option value="${v}">${v}</option>`).join('');
   const inputStyle = `padding:6px 10px;border:1px solid #CBD5E0;border-radius:6px;font-size:.82rem;color:#1A202C;background:#fff;outline:none`;
+  const modeBtn = (id) => `<button id="${id}" data-mode="include"
+    onclick="_toggleImplMode('${id}')"
+    title="Alternar entre 'Filtrar por' e 'Exceto estes'"
+    style="padding:3px 9px;border-radius:5px;border:1px solid #86EFAC;background:#F0FDF4;color:#15803D;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap;line-height:1.4">= filtrar por</button>`;
+
   const filterHtml = `
     <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end">
       <div style="display:flex;flex-direction:column;gap:3px">
         <label style="font-size:.72rem;font-weight:600;color:#4A5568;text-transform:uppercase">Município</label>
-        <input id="impl-f-mun" type="text" placeholder="Filtrar município…" style="${inputStyle};min-width:180px"
-          oninput="_updateImplPivot()">
+        <div style="display:flex;gap:5px;align-items:center">
+          <input id="impl-f-mun" type="text" placeholder="Filtrar município…" style="${inputStyle};min-width:180px"
+            oninput="_updateImplPivot()">
+          ${modeBtn('impl-f-mun-mode')}
+        </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px">
         <label style="font-size:.72rem;font-weight:600;color:#4A5568;text-transform:uppercase">Vertical</label>
-        <select id="impl-f-vert" style="${inputStyle};min-width:140px" onchange="_updateImplPivot()">
-          <option value="">Todas</option>
-          ${vertOpts}
-        </select>
+        <div style="display:flex;gap:5px;align-items:center">
+          <select id="impl-f-vert" style="${inputStyle};min-width:140px" onchange="_updateImplPivot()">
+            <option value="">Todas</option>
+            ${vertOpts}
+          </select>
+          ${modeBtn('impl-f-vert-mode')}
+        </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px">
         <label style="font-size:.72rem;font-weight:600;color:#4A5568;text-transform:uppercase">Produto</label>
-        <input id="impl-f-prod" type="text" placeholder="Buscar no título do chamado…" style="${inputStyle};min-width:220px"
-          oninput="_updateImplPivot()">
+        <div style="display:flex;gap:5px;align-items:center">
+          <input id="impl-f-prod" type="text" placeholder="Buscar no título do chamado…" style="${inputStyle};min-width:220px"
+            oninput="_updateImplPivot()">
+          ${modeBtn('impl-f-prod-mode')}
+        </div>
       </div>
       <button onclick="_clearImplFilters()" style="padding:6px 14px;border:1px solid #CBD5E0;border-radius:6px;background:#F7FAFC;font-size:.82rem;color:#4A5568;cursor:pointer;white-space:nowrap">✕ Limpar filtros</button>
     </div>`;
@@ -2703,9 +2717,12 @@ function _updateImplPivot() {
   const wrapper = document.getElementById('impl-pivot-wrapper');
   if (!wrapper || !_implData) return;
 
-  const fMun  = (document.getElementById('impl-f-mun')  || {}).value || '';
-  const fVert = (document.getElementById('impl-f-vert') || {}).value || '';
-  const fProd = (document.getElementById('impl-f-prod') || {}).value || '';
+  const fMun      = (document.getElementById('impl-f-mun')       || {}).value || '';
+  const fVert     = (document.getElementById('impl-f-vert')      || {}).value || '';
+  const fProd     = (document.getElementById('impl-f-prod')      || {}).value || '';
+  const modeMun   = (document.getElementById('impl-f-mun-mode')  || {}).dataset?.mode  || 'include';
+  const modeVert  = (document.getElementById('impl-f-vert-mode') || {}).dataset?.mode  || 'include';
+  const modeProd  = (document.getElementById('impl-f-prod-mode') || {}).dataset?.mode  || 'include';
 
   const fMunL  = fMun.toLowerCase();
   const fProdL = fProd.toLowerCase();
@@ -2723,15 +2740,24 @@ function _updateImplPivot() {
 
   const { munMap, municipios } = _implData;
 
-  // Verticais visíveis (filtro de vertical)
-  const verticais = fVert ? [fVert] : IMPL_VERTICAIS;
+  // Verticais visíveis (filtro de vertical com modo include/exclude)
+  const verticais = fVert
+    ? (modeVert === 'exclude'
+        ? IMPL_VERTICAIS.filter(v => v !== fVert)
+        : [fVert])
+    : IMPL_VERTICAIS;
 
   // Municípios visíveis após filtros de município e produto
   const munFiltrados = municipios.filter(m => {
-    if (fMunL && !m.toLowerCase().includes(fMunL)) return false;
+    // Filtro município
+    if (fMunL) {
+      const match = m.toLowerCase().includes(fMunL);
+      if (modeMun === 'exclude' ? match : !match) return false;
+    }
+    // Filtro produto
     if (prodSet) {
-      // Mantém o município se ao menos uma (m, v) está no prodSet
-      return verticais.some(v => prodSet.has(m + '||' + v));
+      const hasProd = verticais.some(v => prodSet.has(m + '||' + v));
+      if (modeProd === 'exclude' ? hasProd : !hasProd) return false;
     }
     return true;
   });
@@ -2838,13 +2864,39 @@ function _updateImplPivot() {
     </div>`;
 }
 
+function _toggleImplMode(btnId) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  const next = btn.dataset.mode === 'include' ? 'exclude' : 'include';
+  btn.dataset.mode = next;
+  if (next === 'exclude') {
+    btn.textContent = '≠ exceto';
+    btn.style.border = '1px solid #FCA5A5';
+    btn.style.background = '#FFF5F5';
+    btn.style.color = '#B91C1C';
+  } else {
+    btn.textContent = '= filtrar por';
+    btn.style.border = '1px solid #86EFAC';
+    btn.style.background = '#F0FDF4';
+    btn.style.color = '#15803D';
+  }
+  _updateImplPivot();
+}
+
 function _clearImplFilters() {
-  const fi = document.getElementById('impl-f-mun');
-  const fv = document.getElementById('impl-f-vert');
-  const fp = document.getElementById('impl-f-prod');
-  if (fi) fi.value = '';
-  if (fv) fv.value = '';
-  if (fp) fp.value = '';
+  ['impl-f-mun','impl-f-vert','impl-f-prod'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  ['impl-f-mun-mode','impl-f-vert-mode','impl-f-prod-mode'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.dataset.mode = 'include';
+    btn.textContent = '= filtrar por';
+    btn.style.border = '1px solid #86EFAC';
+    btn.style.background = '#F0FDF4';
+    btn.style.color = '#15803D';
+  });
   _updateImplPivot();
 }
 
