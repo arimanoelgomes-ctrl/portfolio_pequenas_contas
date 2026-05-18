@@ -1003,17 +1003,31 @@ function writeJiraChamados(rows, issues) {
 // ────────────────────────────────────────────────────────────
 function appendToHistory(ss, histTabName, headerRow, newRows, dateColIdx, dateStr) {
   let histTab = ss.getSheetByName(histTabName);
+
+  // Índice real da coluna 'atualizado_em' nas linhas EXISTENTES
+  // (pode diferir do dateColIdx novo quando houve migração de esquema)
+  let existingDateColIdx = dateColIdx;
+  let existingCols       = headerRow.length;
+
   if (!histTab) {
     histTab = ss.insertSheet(histTabName);
     histTab.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
     const hdr = histTab.getRange(1, 1, 1, headerRow.length);
     hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
     histTab.setFrozenRows(1);
-  } else if (histTab.getLastColumn() < headerRow.length) {
-    // Esquema foi estendido — atualizar cabeçalho
-    histTab.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
-    const hdr = histTab.getRange(1, 1, 1, headerRow.length);
-    hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
+  } else {
+    existingCols = histTab.getLastColumn() || headerRow.length;
+    // Descobrir onde está 'atualizado_em' no cabeçalho ATUAL (antes de atualizar)
+    const curHeader = histTab.getRange(1, 1, 1, existingCols).getValues()[0];
+    const atIdx = curHeader.findIndex(h => h.toString().trim().toLowerCase() === 'atualizado_em');
+    if (atIdx >= 0) existingDateColIdx = atIdx;
+
+    // Atualizar cabeçalho apenas se o esquema foi estendido
+    if (existingCols < headerRow.length) {
+      histTab.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
+      const hdr = histTab.getRange(1, 1, 1, headerRow.length);
+      hdr.setBackground('#1E3A5F'); hdr.setFontColor('#FFFFFF'); hdr.setFontWeight('bold');
+    }
   }
 
   // Data de corte para retenção (90 dias atrás)
@@ -1021,20 +1035,28 @@ function appendToHistory(ss, histTabName, headerRow, newRows, dateColIdx, dateSt
   cutoff.setDate(cutoff.getDate() - HIST_RETENTION_DAYS);
   const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-  // Ler linhas existentes, descartar as de hoje (serão substituídas) e as muito antigas
+  // Ler linhas existentes usando o número de colunas do esquema antigo
   let keepRows = [];
   const lastRow = histTab.getLastRow();
   if (lastRow > 1) {
-    const existing = histTab.getRange(2, 1, lastRow - 1, headerRow.length).getValues();
-    keepRows = existing.filter(row => {
-      const d = row[dateColIdx] ? row[dateColIdx].toString().slice(0, 10) : '';
-      return d && d !== dateStr && d >= cutoffStr;
-    });
+    const readCols = Math.max(existingCols, headerRow.length);
+    const existing = histTab.getRange(2, 1, lastRow - 1, readCols).getValues();
+    keepRows = existing
+      .filter(row => {
+        const d = row[existingDateColIdx] ? row[existingDateColIdx].toString().slice(0, 10) : '';
+        return d && d !== dateStr && d >= cutoffStr;
+      })
+      .map(row => {
+        // Garantir que a linha tem o tamanho do novo esquema (preencher com '' se necessário)
+        while (row.length < headerRow.length) row.push('');
+        return row.slice(0, headerRow.length);
+      });
   }
 
   // Reescrever: linhas preservadas + novas
   const allRows = keepRows.concat(newRows);
-  if (lastRow > 1) histTab.getRange(2, 1, lastRow - 1, headerRow.length).clearContent();
+  const clearCols = Math.max(existingCols, headerRow.length);
+  if (lastRow > 1) histTab.getRange(2, 1, lastRow - 1, clearCols).clearContent();
   if (allRows.length > 0) histTab.getRange(2, 1, allRows.length, headerRow.length).setValues(allRows);
 
   Logger.log(`  "${histTabName}": ${newRows.length} novas linhas para ${dateStr} (total histórico: ${allRows.length}).`);
