@@ -496,8 +496,8 @@
 
   <!-- Tab Navigation -->
   <div class="tab-nav">
-    <button class="tab-btn active" onclick="switchTab(0)">📊 Chamados de Serviço</button>
-    <button class="tab-btn" onclick="switchTab(6)">🎯 Chamados de Suporte</button>
+    <button class="tab-btn active" onclick="switchTab(6)">🎯 Chamados de Suporte</button>
+    <button class="tab-btn" onclick="switchTab(0)">📊 Chamados de Serviço</button>
     <button class="tab-btn" onclick="switchTab(1)">🔧 Implantações</button>
     <button class="tab-btn" onclick="switchTab(2)">⚠️ Risco de Churn</button>
     <button class="tab-btn" onclick="switchTab(3)">⭐ NPS</button>
@@ -508,8 +508,15 @@
   <!-- Chart Panel -->
   <div class="chart-panel">
 
-    <!-- View 1: Chamados por Cliente + Por Vertical -->
-    <div class="view active" id="view-0">
+    <!-- View: Chamados de Suporte (default) -->
+    <div class="view active" id="view-suporte">
+      <div class="view-title">Chamados de Suporte</div>
+      <div class="view-subtitle">Equipes Suporte e Residente — monitoramento de SLO de Atendimento • Fonte: Jira</div>
+      <div id="suporte-content" style="margin-top:8px"></div>
+    </div>
+
+    <!-- View: Chamados de Serviço (pos 1) -->
+    <div class="view" id="view-0">
       <div class="view-title">Chamados em Aberto por Cliente</div>
       <div class="view-subtitle">Total de chamados abertos por município • Fonte: Jira</div>
       <div id="view0-content"></div>
@@ -520,14 +527,7 @@
       </div>
     </div>
 
-    <!-- View: Chamados de Suporte (pos 6) -->
-    <div class="view" id="view-suporte">
-      <div class="view-title">Chamados de Suporte</div>
-      <div class="view-subtitle">Equipes Suporte e Residente — monitoramento de SLO de Atendimento • Fonte: Jira</div>
-      <div id="suporte-content" style="margin-top:8px"></div>
-    </div>
-
-    <!-- View: Implantações (pos 1) -->
+    <!-- View: Implantações (pos 2) -->
     <div class="view" id="view-7">
       <div class="view-title">Implantações Pendentes e Em Andamento</div>
       <div class="view-subtitle">Issues de implantação por município e vertical • Fonte: Jira</div>
@@ -733,7 +733,7 @@ const PORTFOLIO_SET = {};
 PORTFOLIO_MUNICIPIOS.forEach(m => { PORTFOLIO_SET[normMun(m)] = m; });
 
 const charts = {};
-let activeTab = 0;
+let activeTab = 6;
 
 // ============================================================
 // PALETA DE CORES
@@ -1060,10 +1060,10 @@ function switchTab(idx) {
     document.getElementById(viewId)?.classList.add('active');
   } else {
     // Fallback: posição DOM (para NPS=3, CND=4, Colaboradores=5)
-    const domIdx = [0,6,1,2,3,4,5].indexOf(idx); // ordem das tabs no nav
+    const domIdx = [6,0,1,2,3,4,5].indexOf(idx); // ordem das tabs no nav
     document.querySelectorAll('.view')[domIdx]?.classList.add('active');
   }
-  document.querySelectorAll('.tab-btn')[([0,6,1,2,3,4,5].indexOf(idx))]?.classList.add('active');
+  document.querySelectorAll('.tab-btn')[([6,0,1,2,3,4,5].indexOf(idx))]?.classList.add('active');
   activeTab = idx;
   renderView(idx);
 }
