@@ -2487,6 +2487,9 @@ function fmtDate(val) {
   return val;
 }
 
+// Estado persistente dos dados de implantações (para filtros sem re-renderizar KPIs/gráficos)
+let _implData = null;
+
 function renderImplantacoes() {
   const container = document.getElementById('impl-content');
   implCharts.forEach(c => c.destroy());
@@ -2520,16 +2523,19 @@ function renderImplantacoes() {
     .sort((a, b) => (b[1].atrasados - a[1].atrasados) || (b[1].total - a[1].total))
     .map(e => e[0]);
 
+  // Salva estado para uso pelos filtros
+  _implData = { munMap, municipios };
+
   const totalGeral    = municipios.reduce((s, m) => s + munMap[m].total,     0);
   const totalAtrasado = municipios.reduce((s, m) => s + munMap[m].atrasados, 0);
   const totalNoPrazo  = municipios.reduce((s, m) => s + munMap[m].no_prazo,  0);
   const totalSemPrazo = municipios.reduce((s, m) => s + munMap[m].sem_prazo, 0);
 
-  const munComAtraso  = municipios.filter(m => munMap[m].atrasados > 0);
-  const munNoPrazo    = municipios.filter(m => munMap[m].atrasados === 0 && munMap[m].no_prazo > 0);
-  const munSemPrazo   = municipios.filter(m => munMap[m].atrasados === 0 && munMap[m].no_prazo === 0);
+  const munComAtraso = municipios.filter(m => munMap[m].atrasados > 0);
+  const munNoPrazo   = municipios.filter(m => munMap[m].atrasados === 0 && munMap[m].no_prazo > 0);
+  const munSemPrazo  = municipios.filter(m => munMap[m].atrasados === 0 && munMap[m].no_prazo === 0);
 
-  // Totais por vertical
+  // Totais por vertical (para gráfico — sobre todos os dados)
   const footTotais = {};
   IMPL_VERTICAIS.forEach(v => {
     footTotais[v] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
@@ -2585,45 +2591,30 @@ function renderImplantacoes() {
       </div>
     </div>`;
 
-  // --- Tabela Pivot ---
-  const thStyle = `padding:8px 8px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
-  const thFirst = `padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
-
-  const headerCells = IMPL_VERTICAIS.map(v =>
-    `<th style="${thStyle}" title="${v}">${v.length > 9 ? v.slice(0,8)+'…' : v}</th>`).join('');
-
-  const bodyRows = municipios.map((m, ri) => {
-    const bg  = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
-    const mun = munMap[m];
-    const cb  = `padding:5px 8px;text-align:center;font-size:.8rem;border-right:1px solid #EDF2F7`;
-
-    const cells = IMPL_VERTICAIS.map(v => {
-      const cell = mun[v];
-      if (!cell || cell.total === 0) return `<td style="${cb};color:#CBD5E0">—</td>`;
-      const s = implCellStyle(cell);
-      const tipParts = [];
-      if (cell.atrasados > 0) tipParts.push(`Atrasadas: ${cell.atrasados}${cell.prazo_minimo ? ' (prazo: ' + fmtDate(cell.prazo_minimo) + ')' : ''}`);
-      if (cell.no_prazo  > 0) tipParts.push(`No prazo: ${cell.no_prazo}`);
-      if (cell.sem_prazo > 0) tipParts.push(`Sem prazo: ${cell.sem_prazo}`);
-      const munAttr  = m.replace(/"/g, '&quot;');
-      const vertAttr = v.replace(/"/g, '&quot;');
-      return `<td style="${cb};background:${s.bg};color:${s.text};font-weight:600;border:1px solid ${s.border};cursor:pointer" title="${tipParts.join(' · ')}" data-mun="${munAttr}" data-vert="${vertAttr}" onclick="openImplModal(this)">${cell.total}</td>`;
-    }).join('');
-
-    const totalCor = mun.atrasados > 0 ? '#B91C1C' : mun.no_prazo > 0 ? '#15803D' : '#475569';
-    return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
-      <td style="padding:6px 12px;font-size:.8rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
-      ${cells}
-      <td style="padding:6px 8px;text-align:center;font-size:.8rem;font-weight:700;border-left:1px solid #CBD5E0;color:${totalCor}">${mun.total}</td>
-    </tr>`;
-  }).join('');
-
-  const footCells = IMPL_VERTICAIS.map(v => {
-    const f = footTotais[v];
-    if (!f.total) return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
-    const cor = f.atrasados > 0 ? '#B91C1C' : f.no_prazo > 0 ? '#15803D' : '#3B82F6';
-    return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:${cor};background:#EDF2F7;border-right:1px solid #CBD5E0">${f.total}</td>`;
-  }).join('');
+  // --- Filtros ---
+  const vertOpts = IMPL_VERTICAIS.map(v => `<option value="${v}">${v}</option>`).join('');
+  const inputStyle = `padding:6px 10px;border:1px solid #CBD5E0;border-radius:6px;font-size:.82rem;color:#1A202C;background:#fff;outline:none`;
+  const filterHtml = `
+    <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:.72rem;font-weight:600;color:#4A5568;text-transform:uppercase">Município</label>
+        <input id="impl-f-mun" type="text" placeholder="Filtrar município…" style="${inputStyle};min-width:180px"
+          oninput="_updateImplPivot()">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:.72rem;font-weight:600;color:#4A5568;text-transform:uppercase">Vertical</label>
+        <select id="impl-f-vert" style="${inputStyle};min-width:140px" onchange="_updateImplPivot()">
+          <option value="">Todas</option>
+          ${vertOpts}
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:.72rem;font-weight:600;color:#4A5568;text-transform:uppercase">Produto</label>
+        <input id="impl-f-prod" type="text" placeholder="Buscar no título do chamado…" style="${inputStyle};min-width:220px"
+          oninput="_updateImplPivot()">
+      </div>
+      <button onclick="_clearImplFilters()" style="padding:6px 14px;border:1px solid #CBD5E0;border-radius:6px;background:#F7FAFC;font-size:.82rem;color:#4A5568;cursor:pointer;white-space:nowrap">✕ Limpar filtros</button>
+    </div>`;
 
   const legendaHtml = `
     <div style="display:flex;gap:16px;margin-top:12px;font-size:.73rem;color:var(--text-muted);flex-wrap:wrap;align-items:center">
@@ -2634,27 +2625,8 @@ function renderImplantacoes() {
       <span style="color:#94A3B8;font-style:italic">Passe o mouse sobre a célula para ver detalhes</span>
     </div>`;
 
-  container.innerHTML = kpiHtml + chartsHtml + `
-    <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
-      <table style="width:100%;border-collapse:collapse;font-family:inherit">
-        <thead>
-          <tr style="background:#1E3A5F;color:#fff">
-            <th style="${thFirst}">Município</th>
-            ${headerCells}
-            <th style="${thStyle}">T</th>
-          </tr>
-        </thead>
-        <tbody>${bodyRows}</tbody>
-        <tfoot>
-          <tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
-            <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
-            ${footCells}
-            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-    ${legendaHtml}`;
+  container.innerHTML = kpiHtml + chartsHtml + filterHtml +
+    `<div id="impl-pivot-wrapper"></div>` + legendaHtml;
 
   // --- Inicializar gráficos (após innerHTML) ---
   const COR_ATRASO = '#EF4444';
@@ -2721,6 +2693,159 @@ function renderImplantacoes() {
       }
     }
   }));
+
+  // Renderiza pivot com filtros zerados
+  _updateImplPivot();
+}
+
+// Atualiza apenas o pivot de implantações com base nos filtros atuais
+function _updateImplPivot() {
+  const wrapper = document.getElementById('impl-pivot-wrapper');
+  if (!wrapper || !_implData) return;
+
+  const fMun  = (document.getElementById('impl-f-mun')  || {}).value || '';
+  const fVert = (document.getElementById('impl-f-vert') || {}).value || '';
+  const fProd = (document.getElementById('impl-f-prod') || {}).value || '';
+
+  const fMunL  = fMun.toLowerCase();
+  const fProdL = fProd.toLowerCase();
+
+  // Conjunto de (municipio||vertical) com issues que batem no filtro de produto
+  let prodSet = null;
+  if (fProdL) {
+    prodSet = new Set();
+    state.implantacoesIssues.forEach(r => {
+      if ((r.summary || '').toLowerCase().includes(fProdL)) {
+        prodSet.add((r.municipio || '').trim() + '||' + (r.vertical || '').trim());
+      }
+    });
+  }
+
+  const { munMap, municipios } = _implData;
+
+  // Verticais visíveis (filtro de vertical)
+  const verticais = fVert ? [fVert] : IMPL_VERTICAIS;
+
+  // Municípios visíveis após filtros de município e produto
+  const munFiltrados = municipios.filter(m => {
+    if (fMunL && !m.toLowerCase().includes(fMunL)) return false;
+    if (prodSet) {
+      // Mantém o município se ao menos uma (m, v) está no prodSet
+      return verticais.some(v => prodSet.has(m + '||' + v));
+    }
+    return true;
+  });
+
+  // Totais de rodapé sobre os dados filtrados
+  const footTotais = {};
+  verticais.forEach(v => {
+    footTotais[v] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
+    munFiltrados.forEach(m => {
+      const c = munMap[m][v];
+      if (!c) return;
+      if (prodSet && !prodSet.has(m + '||' + v)) return; // célula sem produto filtrado
+      footTotais[v].total     += c.total;
+      footTotais[v].atrasados += c.atrasados;
+      footTotais[v].no_prazo  += c.no_prazo;
+      footTotais[v].sem_prazo += c.sem_prazo;
+    });
+  });
+
+  const totalGeral = verticais.reduce((s, v) => s + footTotais[v].total, 0);
+
+  if (!munFiltrados.length) {
+    wrapper.innerHTML = `<div style="padding:24px;text-align:center;color:#94A3B8;font-size:.85rem">Nenhum resultado para os filtros aplicados.</div>`;
+    return;
+  }
+
+  const thStyle = `padding:8px 8px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+  const thFirst = `padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+  const cb      = `padding:5px 8px;text-align:center;font-size:.8rem;border-right:1px solid #EDF2F7`;
+
+  const headerCells = verticais.map(v =>
+    `<th style="${thStyle}" title="${v}">${v.length > 9 ? v.slice(0,8)+'…' : v}</th>`).join('');
+
+  const bodyRows = munFiltrados.map((m, ri) => {
+    const bg  = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+    const mun = munMap[m];
+    const cells = verticais.map(v => {
+      const cell = mun[v];
+      // Oculta célula se filtro de produto ativo e a célula não tem match
+      if (prodSet && !prodSet.has(m + '||' + v)) return `<td style="${cb};color:#CBD5E0">—</td>`;
+      if (!cell || cell.total === 0) return `<td style="${cb};color:#CBD5E0">—</td>`;
+      const s = implCellStyle(cell);
+      const tipParts = [];
+      if (cell.atrasados > 0) tipParts.push(`Atrasadas: ${cell.atrasados}${cell.prazo_minimo ? ' (prazo: ' + fmtDate(cell.prazo_minimo) + ')' : ''}`);
+      if (cell.no_prazo  > 0) tipParts.push(`No prazo: ${cell.no_prazo}`);
+      if (cell.sem_prazo > 0) tipParts.push(`Sem prazo: ${cell.sem_prazo}`);
+      const munAttr  = m.replace(/"/g, '&quot;');
+      const vertAttr = v.replace(/"/g, '&quot;');
+      return `<td style="${cb};background:${s.bg};color:${s.text};font-weight:600;border:1px solid ${s.border};cursor:pointer" title="${tipParts.join(' · ')}" data-mun="${munAttr}" data-vert="${vertAttr}" onclick="openImplModal(this)">${cell.total}</td>`;
+    }).join('');
+    // Total da linha: considera só verticais visíveis e filtro de produto
+    const linhaTotal = verticais.reduce((s, v) => {
+      if (prodSet && !prodSet.has(m + '||' + v)) return s;
+      return s + ((mun[v] && mun[v].total) || 0);
+    }, 0);
+    const linhaAtraso = verticais.reduce((s, v) => {
+      if (prodSet && !prodSet.has(m + '||' + v)) return s;
+      return s + ((mun[v] && mun[v].atrasados) || 0);
+    }, 0);
+    const linhaPrazo = verticais.reduce((s, v) => {
+      if (prodSet && !prodSet.has(m + '||' + v)) return s;
+      return s + ((mun[v] && mun[v].no_prazo) || 0);
+    }, 0);
+    const totalCor = linhaAtraso > 0 ? '#B91C1C' : linhaPrazo > 0 ? '#15803D' : '#475569';
+    return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
+      <td style="padding:6px 12px;font-size:.8rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
+      ${cells}
+      <td style="padding:6px 8px;text-align:center;font-size:.8rem;font-weight:700;border-left:1px solid #CBD5E0;color:${totalCor}">${linhaTotal}</td>
+    </tr>`;
+  }).join('');
+
+  const footCells = verticais.map(v => {
+    const f = footTotais[v];
+    if (!f.total) return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
+    const cor = f.atrasados > 0 ? '#B91C1C' : f.no_prazo > 0 ? '#15803D' : '#3B82F6';
+    return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:${cor};background:#EDF2F7;border-right:1px solid #CBD5E0">${f.total}</td>`;
+  }).join('');
+
+  // Indicador de filtros ativos
+  const filtrosAtivos = [fMun, fVert, fProd].filter(Boolean);
+  const filtroInfo = filtrosAtivos.length
+    ? `<div style="font-size:.73rem;color:#4A5568;margin-bottom:8px">🔍 ${munFiltrados.length} município(s) exibido(s) de ${municipios.length}</div>`
+    : '';
+
+  wrapper.innerHTML = filtroInfo + `
+    <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+      <table style="width:100%;border-collapse:collapse;font-family:inherit">
+        <thead>
+          <tr style="background:#1E3A5F;color:#fff">
+            <th style="${thFirst}">Município</th>
+            ${headerCells}
+            <th style="${thStyle}">T</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot>
+          <tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
+            <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
+            ${footCells}
+            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+}
+
+function _clearImplFilters() {
+  const fi = document.getElementById('impl-f-mun');
+  const fv = document.getElementById('impl-f-vert');
+  const fp = document.getElementById('impl-f-prod');
+  if (fi) fi.value = '';
+  if (fv) fv.value = '';
+  if (fp) fp.value = '';
+  _updateImplPivot();
 }
 
 // ============================================================
