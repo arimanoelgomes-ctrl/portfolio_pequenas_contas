@@ -637,22 +637,15 @@
 
 <!-- Modal: detalhes de implantações -->
 <div class="modal-overlay hidden" id="impl-detail-modal" onclick="closeImplModal(event)">
-  <div class="modal-box" style="max-width:900px;width:95%">
-    <div class="modal-header">
-      <h3 id="impl-modal-title">Implantações</h3>
-      <button class="modal-close" onclick="closeImplModal()">✕</button>
+  <div class="modal-box" style="max-width:1050px;width:95%">
+    <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
+      <h3 id="impl-modal-title" style="margin:0">Implantações</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="exportImplModalCSV()" style="padding:4px 13px;border:1px solid #CBD5E0;border-radius:6px;background:#F7FAFC;font-size:.8rem;color:#2D3748;cursor:pointer;font-weight:600">⬇ Exportar CSV</button>
+        <button class="modal-close" onclick="closeImplModal()">✕</button>
+      </div>
     </div>
-    <div class="modal-body" style="max-height:70vh;overflow-y:auto">
-      <table class="modal-table" style="font-size:.82rem">
-        <thead><tr>
-          <th style="width:110px">Código</th>
-          <th>Resumo</th>
-          <th style="width:200px;text-align:center">Situação</th>
-          <th style="width:120px;text-align:center">Prazo Contratual</th>
-        </tr></thead>
-        <tbody id="impl-modal-body"></tbody>
-      </table>
-    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto" id="impl-modal-content"></div>
   </div>
 </div>
 
@@ -1124,6 +1117,42 @@ function closeOutroModal(e) {
   document.getElementById('outro-modal').classList.add('hidden');
 }
 
+// Contexto do modal aberto — usado pelo CSV
+let _implModalCtx = { issues: [], showMunVert: false, title: '' };
+// Issues pré-filtradas por vertical para os totalizadores
+let _implTotalIssues = {};
+
+function _buildImplTable(issues, showMunVert) {
+  if (!issues.length) {
+    return '<p style="text-align:center;color:#94A3B8;padding:20px">Nenhum chamado encontrado para os filtros aplicados.</p>';
+  }
+  const munVertHead = showMunVert ? '<th style="width:130px">Município</th><th style="width:100px">Vertical</th>' : '';
+  const rows = issues.map(r => {
+    const prazo = r.prazo ? fmtDate(r.prazo) : '—';
+    const link  = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : (r.key || '—');
+    const munVertCells = showMunVert
+      ? `<td style="white-space:nowrap;font-size:.78rem">${r.municipio || '—'}</td><td style="font-size:.78rem;white-space:nowrap">${r.vertical || '—'}</td>`
+      : '';
+    return `<tr>
+      <td style="white-space:nowrap">${link}</td>
+      ${munVertCells}
+      <td>${r.summary || '—'}</td>
+      <td style="text-align:left"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
+      <td style="text-align:left;white-space:nowrap">${prazo}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="modal-table" style="font-size:.82rem">
+    <thead><tr>
+      <th style="width:110px">Código</th>
+      ${munVertHead}
+      <th>Resumo</th>
+      <th style="width:200px;text-align:center">Situação</th>
+      <th style="width:120px;text-align:center">Prazo Contratual</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 function openImplModal(td) {
   const mun  = td.dataset.mun;
   const vert = td.dataset.vert;
@@ -1140,23 +1169,41 @@ function openImplModal(td) {
     const matchesAny = prodTerms.some(t => sumL.includes(t));
     return modeProd === 'exclude' ? !matchesAny : matchesAny;
   });
-  document.getElementById('impl-modal-title').textContent = `${mun} — ${vert}`;
-  const tbody = document.getElementById('impl-modal-body');
-  if (!issues.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#94A3B8">Detalhes indisponíveis — execute o Apps Script para popular a aba Jira_Implantacoes_Issues.</td></tr>';
-  } else {
-    tbody.innerHTML = issues.map(r => {
-      const prazo = r.prazo ? fmtDate(r.prazo) : '—';
-      const link  = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : r.key;
-      return `<tr>
-        <td style="white-space:nowrap">${link}</td>
-        <td>${r.summary || '—'}</td>
-        <td style="text-align:left"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
-        <td style="text-align:left;white-space:nowrap">${prazo}</td>
-      </tr>`;
-    }).join('');
-  }
+
+  const title = `${mun} — ${vert}`;
+  _implModalCtx = { issues, showMunVert: false, title };
+  document.getElementById('impl-modal-title').textContent = title;
+  document.getElementById('impl-modal-content').innerHTML = _buildImplTable(issues, false);
   document.getElementById('impl-detail-modal').classList.remove('hidden');
+}
+
+function openImplTotalModal(vert) {
+  const issues = (_implTotalIssues && _implTotalIssues[vert]) || [];
+  const title  = vert === '__all__' ? 'Total Geral — todos os chamados filtrados' : `Total — ${vert}`;
+  _implModalCtx = { issues, showMunVert: true, title };
+  document.getElementById('impl-modal-title').textContent = title;
+  document.getElementById('impl-modal-content').innerHTML = _buildImplTable(issues, true);
+  document.getElementById('impl-detail-modal').classList.remove('hidden');
+}
+
+function exportImplModalCSV() {
+  const { issues, showMunVert, title } = _implModalCtx;
+  if (!issues.length) return;
+  const header = ['Código', 'URL', ...(showMunVert ? ['Município', 'Vertical'] : []), 'Resumo', 'Situação', 'Prazo Contratual'];
+  const rows = issues.map(r => {
+    const cols = [r.key || '', r.url || ''];
+    if (showMunVert) { cols.push(r.municipio || '', r.vertical || ''); }
+    cols.push((r.summary || '').replace(/"/g, '""'), r.status || '', r.prazo ? fmtDate(r.prazo) : '');
+    return cols.map(v => `"${v}"`).join(',');
+  });
+  const csv  = [header.map(v => `"${v}"`).join(','), ...rows].join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `implantacoes_${title.replace(/[^a-z0-9]/gi, '_').slice(0, 60)}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function closeImplModal(e) {
@@ -1415,7 +1462,7 @@ function renderChamadosPorVertical() {
           <tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
             <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
             ${footCells}
-            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
+            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0;cursor:pointer" title="Ver lista completa · ${totalGeral} chamados" onclick="openImplTotalModal('__all__')">${totalGeral}</td>
           </tr>
         </tfoot>
       </table>
@@ -2855,11 +2902,30 @@ function _updateImplPivot() {
     </tr>`;
   }).join('');
 
+  // Pré-popula _implTotalIssues para uso pelos cliques no rodapé
+  _implTotalIssues = { __all__: [] };
+  verticais.forEach(v => { _implTotalIssues[v] = []; });
+  state.implantacoesIssues.forEach(r => {
+    const m = (r.municipio || '').trim();
+    const v = (r.vertical  || '').trim();
+    if (!munFiltrados.includes(m)) return;
+    if (!verticais.includes(v)) return;
+    if (prodTerms.length) {
+      const sumL = (r.summary || '').toLowerCase();
+      const matchesAny = prodTerms.some(t => sumL.includes(t));
+      if (modeProd === 'exclude' ? matchesAny : !matchesAny) return;
+    }
+    _implTotalIssues[v].push(r);
+    _implTotalIssues.__all__.push(r);
+  });
+
+  const tdFoot = `padding:6px 8px;text-align:center;font-size:.78rem;border-right:1px solid #CBD5E0;cursor:pointer`;
   const footCells = verticais.map(v => {
     const f = footTotais[v];
-    if (!f.total) return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
+    if (!f.total) return `<td style="${tdFoot};color:#94A3B8;background:#EDF2F7">—</td>`;
     const cor = f.atrasados > 0 ? '#B91C1C' : f.no_prazo > 0 ? '#15803D' : '#3B82F6';
-    return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:${cor};background:#EDF2F7;border-right:1px solid #CBD5E0">${f.total}</td>`;
+    const vAttr = v.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    return `<td style="${tdFoot};font-weight:700;color:${cor};background:#EDF2F7" title="Ver lista · ${f.total} chamados" onclick="openImplTotalModal('${vAttr}')">${f.total}</td>`;
   }).join('');
 
   // Indicador de filtros ativos
@@ -2883,7 +2949,7 @@ function _updateImplPivot() {
           <tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
             <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
             ${footCells}
-            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
+            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0;cursor:pointer" title="Ver lista completa · ${totalGeral} chamados" onclick="openImplTotalModal('__all__')">${totalGeral}</td>
           </tr>
         </tfoot>
       </table>
