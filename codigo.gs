@@ -820,7 +820,7 @@ function fetchJiraIssues(jql) {
 
   const sessionCookie = getJiraSession(baseUrl, email, password);
   const headers = { 'Cookie': sessionCookie, 'Accept': 'application/json', 'Content-Type': 'application/json' };
-  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, 'status', FIELD_SLO_ATENDIMENTO];
+  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, 'status', FIELD_SLO_ATENDIMENTO, 'assignee'];
 
   const allIssues = [];
   let startAt = 0;
@@ -981,22 +981,23 @@ function writeJiraChamados(rows, issues, tabName, issuesTabName) {
     let issuesTab = ss.getSheetByName(issuesTabName);
     if (!issuesTab) { issuesTab = ss.insertSheet(issuesTabName); Logger.log(`  Aba "${issuesTabName}" criada.`); }
 
-    const issuesHeader = [['key','url','summary','status','municipio','vertical','slo_horas','atualizado_em']];
-    issuesTab.getRange(1, 1, 1, 8).setValues(issuesHeader);
+    const issuesHeader = [['key','url','summary','status','municipio','vertical','slo_horas','responsavel','atualizado_em']];
+    issuesTab.getRange(1, 1, 1, 9).setValues(issuesHeader);
     const lastIssue = issuesTab.getLastRow();
-    if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 8).clearContent();
+    if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 9).clearContent();
 
     const issueRows = issues.map(issue => {
-      const municipio = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
-      const vObj      = issue.fields[FIELD_VERTICAL];
-      const vertical  = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
-      const status    = (issue.fields.status && issue.fields.status.name) ? issue.fields.status.name : '';
-      const sloHoras  = _formatSloHoras(_getSloHoras(issue.fields[FIELD_SLO_ATENDIMENTO]));
-      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, sloHoras, ts];
+      const municipio    = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
+      const vObj         = issue.fields[FIELD_VERTICAL];
+      const vertical     = (vObj && vObj.value) ? vObj.value.trim() : 'Não informado';
+      const status       = (issue.fields.status && issue.fields.status.name) ? issue.fields.status.name : '';
+      const sloHoras     = _formatSloHoras(_getSloHoras(issue.fields[FIELD_SLO_ATENDIMENTO]));
+      const responsavel  = (issue.fields.assignee && issue.fields.assignee.displayName) ? issue.fields.assignee.displayName : '';
+      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, sloHoras, responsavel, ts];
     }).sort((a, b) => a[4].localeCompare(b[4], 'pt-BR') || a[5].localeCompare(b[5], 'pt-BR'));
 
-    if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 8).setValues(issueRows);
-    const ih = issuesTab.getRange(1, 1, 1, 8);
+    if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 9).setValues(issueRows);
+    const ih = issuesTab.getRange(1, 1, 1, 9);
     ih.setBackground('#1E3A5F'); ih.setFontColor('#FFFFFF'); ih.setFontWeight('bold');
     issuesTab.setFrozenRows(1);
     Logger.log(`  "${issuesTabName}": ${issueRows.length} issues individuais gravados.`);

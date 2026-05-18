@@ -1422,9 +1422,11 @@ function _buildIssueRow(r, i) {
   const sloBg     = sloVal === '—' ? 'transparent' : sloExc ? '#FEE2E2' : '#DCFCE7';
   const sloBorder = sloVal === '—' ? 'transparent' : sloExc ? '#FECACA' : '#86EFAC';
   const link      = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : r.key;
+  const resp      = r.responsavel || '—';
   return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
     <td style="padding:6px 12px;white-space:nowrap">${link}</td>
     <td style="padding:6px 12px;font-size:.8rem">${r.municipio || '—'}</td>
+    <td style="padding:6px 12px;font-size:.8rem">${resp}</td>
     <td style="padding:6px 12px;text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span></td>
     <td style="padding:6px 12px;font-size:.78rem"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;white-space:nowrap">${r.status || '—'}</span></td>
   </tr>`;
@@ -1469,6 +1471,7 @@ function _renderIssuesPorVertical(container, issues, titulo) {
             <thead><tr style="background:#1E3A5F;color:#fff">
               <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap">Código</th>
               <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Município</th>
+              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Responsável</th>
               <th style="padding:8px 12px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap">SLO</th>
               <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Status</th>
             </tr></thead>
