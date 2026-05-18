@@ -2844,7 +2844,7 @@ function _updateImplPivot() {
   }).join('');
 
   // Indicador de filtros ativos
-  const filtrosAtivos = [fMun, fVert, fProd].filter(Boolean);
+  const filtrosAtivos = [fMun, selectedVerts.length ? selectedVerts.join(', ') : '', fProd].filter(Boolean);
   const filtroInfo = filtrosAtivos.length
     ? `<div style="font-size:.73rem;color:#4A5568;margin-bottom:8px">🔍 ${munFiltrados.length} município(s) exibido(s) de ${municipios.length}</div>`
     : '';
