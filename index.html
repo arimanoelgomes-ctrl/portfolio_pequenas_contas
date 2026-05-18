@@ -929,12 +929,16 @@ async function loadAllData() {
 // KPI CARDS
 // ============================================================
 function updateKPIs() {
-  // Total chamados
-  const totalChamados = state.jira.reduce((s, r) => s + (parseInt(r.total_chamados) || 0), 0);
-  const municipiosJira = [...new Set(state.jira.map(r => r.municipio).filter(Boolean))];
+  // Total chamados (Serviço + Suporte + Residente)
+  // state.jira  = Jira_Chamados (antes do split: todas as equipes; depois: só Serviço)
+  // state.suporte = Jira_Chamados_Suporte (Suporte+Residente — vazio para datas históricas anteriores ao split)
+  // A soma garante continuidade histórica: datas antigas retornam só jira (total completo); novas retornam jira+suporte
+  const _allChamados = [...state.jira, ...state.suporte];
+  const totalChamados = _allChamados.reduce((s, r) => s + (parseInt(r.total_chamados) || 0), 0);
+  const municipiosJira = [...new Set(_allChamados.map(r => r.municipio).filter(Boolean))];
   document.getElementById('kpi-chamados').textContent = totalChamados || '—';
   document.getElementById('kpi-chamados-sub').textContent =
-    state.jira.length ? `Em ${municipiosJira.length} municípios` : 'Dados indisponíveis';
+    _allChamados.length ? `Em ${municipiosJira.length} municípios` : 'Dados indisponíveis';
 
   // CND Estadual — conta por MUNICÍPIO no período atual
   if (state.cndEstadual.length) {
