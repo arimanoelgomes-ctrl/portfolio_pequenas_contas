@@ -1465,43 +1465,71 @@ function renderChamadosSuporte() {
       </div>
     </div>`;
 
-  // ── Seção: Aguardando Triagem × SLO ─────────────────────────
+  // ── Seção: Aguardando Triagem × SLO — uma tabela por vertical ─
+  const _buildTriagemRow = (r, i) => {
+    const bg        = i % 2 === 0 ? '#fff' : '#F8FAFC';
+    const sloVal    = r.slo_horas || '—';
+    const sloExc    = sloVal.startsWith('-');
+    const sloColor  = sloVal === '—' ? '#94A3B8' : sloExc ? '#B91C1C' : '#15803D';
+    const sloBg     = sloVal === '—' ? 'transparent' : sloExc ? '#FEE2E2' : '#DCFCE7';
+    const sloBorder = sloVal === '—' ? 'transparent' : sloExc ? '#FECACA' : '#86EFAC';
+    const link      = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : r.key;
+    return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
+      <td style="padding:6px 12px;white-space:nowrap">${link}</td>
+      <td style="padding:6px 12px;font-size:.8rem">${r.municipio || '—'}</td>
+      <td style="padding:6px 12px;text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span></td>
+      <td style="padding:6px 12px;font-size:.78rem"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;white-space:nowrap">${r.status || '—'}</span></td>
+    </tr>`;
+  };
+
   let triagemHtml = '';
   if (triagem.length > 0) {
-    const rows = triagem.map((r, i) => {
-      const bg       = i % 2 === 0 ? '#fff' : '#F8FAFC';
-      const sloVal   = r.slo_horas || '—';
-      const sloExc   = sloVal.startsWith('-');
-      const sloColor = sloVal === '—' ? '#94A3B8' : sloExc ? '#B91C1C' : '#15803D';
-      const sloBg    = sloVal === '—' ? 'transparent' : sloExc ? '#FEE2E2' : '#DCFCE7';
-      const sloBorder= sloVal === '—' ? 'transparent' : sloExc ? '#FECACA' : '#86EFAC';
-      const link     = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : r.key;
-      return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
-        <td style="padding:6px 12px;white-space:nowrap">${link}</td>
-        <td style="padding:6px 12px;font-size:.8rem">${r.municipio || '—'}</td>
-        <td style="padding:6px 12px;font-size:.8rem">${r.vertical || '—'}</td>
-        <td style="padding:6px 12px;text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span></td>
-        <td style="padding:6px 12px;font-size:.78rem"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;white-space:nowrap">${r.status || '—'}</span></td>
-      </tr>`;
+    // Agrupar por vertical (mantendo ordenação por SLO dentro de cada grupo)
+    const triagemPorVertical = {};
+    triagem.forEach(r => {
+      const v = r.vertical || 'Não informado';
+      if (!triagemPorVertical[v]) triagemPorVertical[v] = [];
+      triagemPorVertical[v].push(r);
+    });
+    const verticaisTriagem = Object.keys(triagemPorVertical).sort();
+
+    const tabelasPorVertical = verticaisTriagem.map(v => {
+      const itens = triagemPorVertical[v];
+      const sloEstouradoV = itens.filter(r => (r.slo_horas || '').startsWith('-')).length;
+      const badgeCor = sloEstouradoV > 0
+        ? 'background:#FEE2E2;color:#B91C1C;border:1px solid #FECACA'
+        : 'background:#DCFCE7;color:#15803D;border:1px solid #86EFAC';
+      const rows = itens.map((r, i) => _buildTriagemRow(r, i)).join('');
+      return `
+        <div style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-size:.82rem;font-weight:700;color:#1E3A5F">${v}</span>
+            <span style="font-size:.72rem;font-weight:600;padding:1px 8px;border-radius:10px;${badgeCor}">
+              ${sloEstouradoV > 0 ? sloEstouradoV + ' com SLO estourado' : '✓ Sem SLO estourado'}
+            </span>
+            <span style="font-size:.72rem;color:#718096">${itens.length} chamado(s)</span>
+          </div>
+          <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+            <table style="width:100%;border-collapse:collapse;font-family:inherit;font-size:.82rem">
+              <thead><tr style="background:#1E3A5F;color:#fff">
+                <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap">Código</th>
+                <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Município</th>
+                <th style="padding:8px 12px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap">SLO</th>
+                <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Status</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
     }).join('');
+
     triagemHtml = `
       <div style="margin-bottom:24px">
-        <div style="font-size:.9rem;font-weight:700;color:#1E3A5F;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+        <div style="font-size:.9rem;font-weight:700;color:#1E3A5F;margin-bottom:12px;display:flex;align-items:center;gap:8px">
           ⏳ Aguardando Triagem × SLO
-          <span style="font-size:.72rem;font-weight:400;color:#718096">${triagem.length} chamado(s) — ordenado por SLO mais crítico</span>
+          <span style="font-size:.72rem;font-weight:400;color:#718096">${triagem.length} chamado(s) em ${verticaisTriagem.length} vertical(is) — ordenado por SLO mais crítico</span>
         </div>
-        <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
-          <table style="width:100%;border-collapse:collapse;font-family:inherit;font-size:.82rem">
-            <thead><tr style="background:#1E3A5F;color:#fff">
-              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap">Código</th>
-              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Município</th>
-              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Vertical</th>
-              <th style="padding:8px 12px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap">SLO</th>
-              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Status</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
+        ${tabelasPorVertical}
       </div>`;
   }
 
