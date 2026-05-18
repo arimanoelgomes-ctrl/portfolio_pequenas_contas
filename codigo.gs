@@ -28,7 +28,7 @@ const SHEET_ID_DEFAULT = '1MKsApbL7IPf5jAsAO9N03AxAcC3ptzYbrgNQrOr_R4s';
 // Dashboard chama: ?sheet=Jira_Chamados&callback=fn
 // ────────────────────────────────────────────────────────────
 // Abas que possuem versão histórica (_Hist)
-const HIST_ENABLED = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
+const HIST_ENABLED = ['Jira_Chamados', 'Jira_Chamados_Suporte', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
 
 function doGet(e) {
   const callback  = (e && e.parameter && e.parameter.callback) ? e.parameter.callback : null;
@@ -94,9 +94,15 @@ function readSheetData(sheetName, filterDate) {
 }
 
 // ────────────────────────────────────────────────────────────
-// JQL — Filtro completo do portfólio de pequenas contas
+// JQL — Filtros por equipe responsável (portfólio de pequenas contas)
 // ────────────────────────────────────────────────────────────
-const JQL = `category = "Projetos ativos de atendimento - Filial" AND resolution = Unresolved AND issuetype not in (Melhoria, "Melhoria (sub-tarefa)") AND "Equipe responsável" in (Suporte, Residente, Serviço) AND (Vertical not in (Saúde, Educação) AND Município in ("Abdon Batista", Agrolândia, "Anita Garibaldi", Angelina, Anchieta, "Balneário Arroio do Silva", "Balneário Barra do Sul", "Balneário Camboriú", "Balneário Piçarras", Bandeirante, "Barra Bonita", "Barra Velha", "Bela Vista do Toldo", Belmonte, "Benedito Novo", Brunópolis, Caçador, Calmon, "Campo Alegre", "Capão Alto", Chapecó, Concórdia, "Dona Emma", "Erval Velho", Ermo, "Frei Rogério", Iraceminha, Imbuia, Ipira, Ipuaçu, Itá, Itajaí, Jupiá, Lacerdópolis, "Lajeado Grande", "Leoberto Leal", "Lindóia do Sul", "Luiz Alves", Luzerna, Mafra, Massaranduba, Meleiro, Modelo, "Morro da Fumaça", "Morro Grande", Penha, Peritiba, "Pescaria Brava", Pomerode, "Praia Grande", "Rio do Sul", "Rio Fortuna", "Rio Rufino", Saltinho, "Santa Terezinha", "São Bernardino", "São Bonifácio", "São Cristovão do Sul", "São João do Oeste", "São José do Cedro", "São Martinho", "São Miguel da Boa Vista", "São Pedro de Alcântara", Tangará, "Treze de Maio", Tigrinhos, Timbó, Treviso, Videira) OR Vertical in (Saúde, Educação) AND "Equipe responsável" not in (Suporte) AND Município in ("Abdon Batista", Agrolândia, "Anita Garibaldi", Angelina, Anchieta, "Balneário Arroio do Silva", "Balneário Barra do Sul", "Balneário Camboriú", "Balneário Piçarras", Bandeirante, "Barra Bonita", "Barra Velha", "Bela Vista do Toldo", Belmonte, "Benedito Novo", Brunópolis, Caçador, Calmon, "Campo Alegre", "Capão Alto", Chapecó, Concórdia, "Dona Emma", "Erval Velho", Ermo, "Frei Rogério", Iraceminha, Imbuia, Ipira, Ipuaçu, Itá, Itajaí, Jupiá, Lacerdópolis, "Lajeado Grande", "Leoberto Leal", "Lindóia do Sul", "Luiz Alves", Luzerna, Mafra, Massaranduba, Meleiro, Modelo, "Morro da Fumaça", "Morro Grande", Penha, Peritiba, "Pescaria Brava", Pomerode, "Praia Grande", "Rio do Sul", "Rio Fortuna", "Rio Rufino", Saltinho, "Santa Terezinha", "São Bernardino", "São Bonifácio", "São Cristovão do Sul", "São João do Oeste", "São José do Cedro", "São Martinho", "São Miguel da Boa Vista", "São Pedro de Alcântara", Tangará, "Treze de Maio", Tigrinhos, Timbó, Treviso, Videira))`;
+const _MUN_LIST = `"Abdon Batista", Agrolândia, "Anita Garibaldi", Angelina, Anchieta, "Balneário Arroio do Silva", "Balneário Barra do Sul", "Balneário Camboriú", "Balneário Piçarras", Bandeirante, "Barra Bonita", "Barra Velha", "Bela Vista do Toldo", Belmonte, "Benedito Novo", Brunópolis, Caçador, Calmon, "Campo Alegre", "Capão Alto", Chapecó, Concórdia, "Dona Emma", "Erval Velho", Ermo, "Frei Rogério", Iraceminha, Imbuia, Ipira, Ipuaçu, Itá, Itajaí, Jupiá, Lacerdópolis, "Lajeado Grande", "Leoberto Leal", "Lindóia do Sul", "Luiz Alves", Luzerna, Mafra, Massaranduba, Meleiro, Modelo, "Morro da Fumaça", "Morro Grande", Penha, Peritiba, "Pescaria Brava", Pomerode, "Praia Grande", "Rio do Sul", "Rio Fortuna", "Rio Rufino", Saltinho, "Santa Terezinha", "São Bernardino", "São Bonifácio", "São Cristovão do Sul", "São João do Oeste", "São José do Cedro", "São Martinho", "São Miguel da Boa Vista", "São Pedro de Alcântara", Tangará, "Treze de Maio", Tigrinhos, Timbó, Treviso, Videira`;
+
+// Chamados de Serviço — equipe Serviço
+const JQL = `category = "Projetos ativos de atendimento - Filial" AND resolution = Unresolved AND issuetype not in (Melhoria, "Melhoria (sub-tarefa)") AND "Equipe responsável" = Serviço AND Município in (${_MUN_LIST})`;
+
+// Chamados de Suporte — equipes Suporte + Residente
+const JQL_SUPORTE = `category = "Projetos ativos de atendimento - Filial" AND resolution = Unresolved AND issuetype not in (Melhoria, "Melhoria (sub-tarefa)") AND "Equipe responsável" in (Suporte, Residente) AND Município in (${_MUN_LIST})`;
 
 // JQL para implantações pendentes e em andamento
 const JQL_IMPLANTACOES = `(labels not in (implantaçãoRecusada) OR labels is EMPTY) AND issuetype = Implantação AND "Equipe responsável" not in (Revenda, Parceiros, Produto, "Produto extensões", Tribunais) AND resolution = Unresolved AND status not in ("Produto contratado", Reprovada) AND (Município in ("Abdon Batista", Agrolândia, "Anita Garibaldi", Angelina, Anchieta, "Balneário Arroio do Silva", "Balneário Barra do Sul", "Balneário Camboriú", "Balneário Piçarras", Bandeirante, "Barra Bonita", "Barra Velha", "Bela Vista do Toldo", Belmonte, "Benedito Novo", Brunópolis, Caçador, Calmon, "Campo Alegre", "Capão Alto", Chapecó, Concórdia, "Dona Emma", "Erval Velho", Ermo, "Frei Rogério", Iraceminha, Imbuia, Ipira, Ipuaçu, Itá, Itajaí, Jupiá, Lacerdópolis, "Lajeado Grande", "Leoberto Leal", "Lindóia do Sul", "Luiz Alves", Luzerna, Mafra, Massaranduba, Meleiro, Modelo, "Morro da Fumaça", "Morro Grande", Penha, Peritiba, "Pescaria Brava", Pomerode, "Praia Grande", "Rio do Sul", "Rio Fortuna", "Rio Rufino", Saltinho, "Santa Terezinha", "São Bernardino", "São Bonifácio", "São Cristovão do Sul", "São João do Oeste", "São José do Cedro", "São Martinho", "São Miguel da Boa Vista", "São Pedro de Alcântara", Tangará, "Treze de Maio", Tigrinhos, Timbó, Treviso, Videira) OR Município in ("Campos Novos") AND Entidade = "CIMPLASC - CONSORCIO INTERMUNICIPAL DE SANEAMENTO BASICO MEIO AMBIENTE ATENCAO A SANIDADE DOS PRODUTOS DE ORIGEM AGROPECUARIA SEGURANCA ALIMENTAR - Campos Novos/SC") ORDER BY status DESC, cf[21500] DESC, issuetype ASC, Município ASC, cf[10300] ASC, cf[22902] ASC, assignee DESC`;
@@ -105,8 +111,10 @@ const FIELD_MUNICIPIO        = 'customfield_10331'; // Município (string)
 const FIELD_VERTICAL         = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
 const FIELD_PRAZO            = 'customfield_25801'; // Prazo contratual da implantação (date "YYYY-MM-DD")
 const FIELD_SLO_ATENDIMENTO  = 'customfield_24813'; // SLO Atendimento (objeto com ongoingCycle/completedCycles)
-const SHEET_TAB_NAME  = 'Jira_Chamados';
-const CHAMADOS_ISSUES_TAB_NAME = 'Jira_Chamados_Issues';
+const SHEET_TAB_NAME            = 'Jira_Chamados';
+const CHAMADOS_ISSUES_TAB_NAME  = 'Jira_Chamados_Issues';
+const SUPORTE_TAB_NAME          = 'Jira_Chamados_Suporte';
+const SUPORTE_ISSUES_TAB_NAME   = 'Jira_Chamados_Suporte_Issues';
 const IMPL_TAB_NAME         = 'Jira_Implantacoes';
 const IMPL_ISSUES_TAB_NAME  = 'Jira_Implantacoes_Issues';
 const CND_TAB_NAME    = 'CND_Municipios';
@@ -133,11 +141,12 @@ function onTimeTrigger() {
   const inicio = new Date();
   Logger.log(`▶ Iniciando coleta: ${inicio.toLocaleString('pt-BR')}`);
   try {
-    const issues = fetchJiraIssues();
-    Logger.log(`  Issues coletadas: ${issues.length}`);
+    const issues = fetchJiraIssues(JQL);
+    Logger.log(`  Issues Serviço coletadas: ${issues.length}`);
     const rows = aggregateByMunicipioVertical(issues);
-    writeJiraChamados(rows, issues);
-    Logger.log(`  Jira: ${rows.length} linhas gravadas`);
+    writeJiraChamados(rows, issues, SHEET_TAB_NAME, CHAMADOS_ISSUES_TAB_NAME);
+    Logger.log(`  Jira Serviço: ${rows.length} linhas gravadas`);
+    fetchAndStoreChamadosSuporte();
     fetchAndStoreCND();
     fetchAndStoreCNDFederal();
     fetchAndStoreCNDEstadual();
@@ -799,7 +808,7 @@ function getJiraSession(baseUrl, email, password) {
 // ────────────────────────────────────────────────────────────
 // COLETA JIRA — Jira REST API v2 com paginação
 // ────────────────────────────────────────────────────────────
-function fetchJiraIssues() {
+function fetchJiraIssues(jql) {
   const props    = PropertiesService.getScriptProperties();
   const baseUrl  = props.getProperty('JIRA_BASE_URL') || '';
   const email    = props.getProperty('JIRA_EMAIL')    || '';
@@ -818,7 +827,7 @@ function fetchJiraIssues() {
 
   while (true) {
     const url  = `${baseUrl}/rest/api/2/search`;
-    const body = JSON.stringify({ jql: JQL, fields: fields, maxResults: PAGE_SIZE, startAt: startAt });
+    const body = JSON.stringify({ jql: jql, fields: fields, maxResults: PAGE_SIZE, startAt: startAt });
 
     const resp = UrlFetchApp.fetch(url, { method: 'post', headers, payload: body, muteHttpExceptions: true });
     const code = resp.getResponseCode();
@@ -928,14 +937,17 @@ function _formatSloHoras(horas) {
 }
 
 // ────────────────────────────────────────────────────────────
-// GRAVAÇÃO — atualiza a aba Jira_Chamados (e Jira_Chamados_Issues)
+// GRAVAÇÃO — atualiza aba pivot + aba de issues individuais
+// tabName e issuesTabName são opcionais (default: Jira_Chamados / Jira_Chamados_Issues)
 // ────────────────────────────────────────────────────────────
-function writeJiraChamados(rows, issues) {
+function writeJiraChamados(rows, issues, tabName, issuesTabName) {
+  tabName       = tabName       || SHEET_TAB_NAME;
+  issuesTabName = issuesTabName || CHAMADOS_ISSUES_TAB_NAME;
   const props   = PropertiesService.getScriptProperties();
   const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
   const ss      = SpreadsheetApp.openById(sheetId);
-  let tab       = ss.getSheetByName(SHEET_TAB_NAME);
-  if (!tab) { tab = ss.insertSheet(SHEET_TAB_NAME); Logger.log(`  Aba "${SHEET_TAB_NAME}" criada.`); }
+  let tab       = ss.getSheetByName(tabName);
+  if (!tab) { tab = ss.insertSheet(tabName); Logger.log(`  Aba "${tabName}" criada.`); }
 
   // Cabeçalho (5 colunas — inclui slo_estourado)
   tab.getRange(1, 1, 1, 5).setValues([['municipio','vertical','total_chamados','slo_estourado','atualizado_em']]);
@@ -954,20 +966,20 @@ function writeJiraChamados(rows, issues) {
   h.setFontWeight('bold');
   tab.setFrozenRows(1);
 
-  Logger.log(`  "${SHEET_TAB_NAME}" atualizada: ${rows.length} linhas.`);
+  Logger.log(`  "${tabName}" atualizada: ${rows.length} linhas.`);
 
   // Histórico diário
   const dateStr = new Date().toISOString().slice(0, 10);
-  appendToHistory(ss, SHEET_TAB_NAME + '_Hist',
+  appendToHistory(ss, tabName + '_Hist',
     ['municipio', 'vertical', 'total_chamados', 'slo_estourado', 'atualizado_em'],
     rows, 4, dateStr);
 
-  // Issues individuais → aba Jira_Chamados_Issues (8 colunas — inclui slo_estourado)
+  // Issues individuais (8 colunas — inclui slo_horas)
   if (issues && issues.length > 0) {
     const baseUrl = PropertiesService.getScriptProperties().getProperty('JIRA_BASE_URL') || '';
     const ts = new Date().toISOString();
-    let issuesTab = ss.getSheetByName(CHAMADOS_ISSUES_TAB_NAME);
-    if (!issuesTab) { issuesTab = ss.insertSheet(CHAMADOS_ISSUES_TAB_NAME); Logger.log(`  Aba "${CHAMADOS_ISSUES_TAB_NAME}" criada.`); }
+    let issuesTab = ss.getSheetByName(issuesTabName);
+    if (!issuesTab) { issuesTab = ss.insertSheet(issuesTabName); Logger.log(`  Aba "${issuesTabName}" criada.`); }
 
     const issuesHeader = [['key','url','summary','status','municipio','vertical','slo_horas','atualizado_em']];
     issuesTab.getRange(1, 1, 1, 8).setValues(issuesHeader);
@@ -987,8 +999,20 @@ function writeJiraChamados(rows, issues) {
     const ih = issuesTab.getRange(1, 1, 1, 8);
     ih.setBackground('#1E3A5F'); ih.setFontColor('#FFFFFF'); ih.setFontWeight('bold');
     issuesTab.setFrozenRows(1);
-    Logger.log(`  "${CHAMADOS_ISSUES_TAB_NAME}": ${issueRows.length} issues individuais gravados.`);
+    Logger.log(`  "${issuesTabName}": ${issueRows.length} issues individuais gravados.`);
   }
+}
+
+// ────────────────────────────────────────────────────────────
+// COLETA — Chamados de Suporte (Equipes: Suporte + Residente)
+// ────────────────────────────────────────────────────────────
+function fetchAndStoreChamadosSuporte() {
+  Logger.log('  Buscando chamados de Suporte/Residente...');
+  const issues = fetchJiraIssues(JQL_SUPORTE);
+  Logger.log(`  Issues Suporte coletadas: ${issues.length}`);
+  const rows = aggregateByMunicipioVertical(issues);
+  writeJiraChamados(rows, issues, SUPORTE_TAB_NAME, SUPORTE_ISSUES_TAB_NAME);
+  Logger.log(`  Jira Suporte: ${rows.length} linhas gravadas`);
 }
 
 // ────────────────────────────────────────────────────────────

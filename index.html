@@ -496,7 +496,8 @@
 
   <!-- Tab Navigation -->
   <div class="tab-nav">
-    <button class="tab-btn active" onclick="switchTab(0)">📊 Chamados</button>
+    <button class="tab-btn active" onclick="switchTab(0)">📊 Chamados de Serviço</button>
+    <button class="tab-btn" onclick="switchTab(6)">🎯 Chamados de Suporte</button>
     <button class="tab-btn" onclick="switchTab(1)">🔧 Implantações</button>
     <button class="tab-btn" onclick="switchTab(2)">⚠️ Risco de Churn</button>
     <button class="tab-btn" onclick="switchTab(3)">⭐ NPS</button>
@@ -517,6 +518,13 @@
         <div class="view-subtitle">Distribuição de chamados por vertical dentro de cada município • Fonte: Jira</div>
         <div id="view1-content"></div>
       </div>
+    </div>
+
+    <!-- View: Chamados de Suporte (pos 6) -->
+    <div class="view" id="view-suporte">
+      <div class="view-title">Chamados de Suporte</div>
+      <div class="view-subtitle">Equipes Suporte e Residente — monitoramento de SLO de Atendimento • Fonte: Jira</div>
+      <div id="suporte-content" style="margin-top:8px"></div>
     </div>
 
     <!-- View: Implantações (pos 1) -->
@@ -696,9 +704,9 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], chamadosIssues: [], selectedDate: null };
+const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], chamadosIssues: [], suporte: [], suporteIssues: [], selectedDate: null };
 // Abas que possuem versão histórica no servidor
-const HIST_SHEETS = ['Jira_Chamados', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
+const HIST_SHEETS = ['Jira_Chamados', 'Jira_Chamados_Suporte', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
 
 // Municípios do portfólio (69 — Campos Novos excluído: só consórcio)
 const PORTFOLIO_MUNICIPIOS = [
@@ -849,7 +857,7 @@ async function loadAllData() {
   showLoading(true);
   if (btn) btn.disabled = true;
 
-  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes, chamadosIssuesRes] = await Promise.allSettled([
+  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes, chamadosIssuesRes, suporteRes, suporteIssuesRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
     fetchSheet('NPS_Calculado'),
@@ -859,6 +867,8 @@ async function loadAllData() {
     fetchSheet('Jira_Implantacoes'),
     fetchSheet('Jira_Implantacoes_Issues'),
     fetchSheet('Jira_Chamados_Issues'),
+    fetchSheet('Jira_Chamados_Suporte'),
+    fetchSheet('Jira_Chamados_Suporte_Issues'),
   ]);
 
   if (jiraRes.status === 'fulfilled')  state.jira  = jiraRes.value;
@@ -890,6 +900,12 @@ async function loadAllData() {
 
   if (chamadosIssuesRes.status === 'fulfilled') state.chamadosIssues = chamadosIssuesRes.value;
   else { console.warn('ChamadosIssues:', chamadosIssuesRes.reason?.message); state.chamadosIssues = []; }
+
+  if (suporteRes.status === 'fulfilled') state.suporte = suporteRes.value;
+  else { console.warn('Suporte:', suporteRes.reason?.message); state.suporte = []; }
+
+  if (suporteIssuesRes.status === 'fulfilled') state.suporteIssues = suporteIssuesRes.value;
+  else { console.warn('SuporteIssues:', suporteIssuesRes.reason?.message); state.suporteIssues = []; }
 
   // Timestamps
   const now = new Date().toLocaleString('pt-BR');
@@ -1028,9 +1044,22 @@ function npsZone(score) {
 // ============================================================
 // TAB SWITCHING
 // ============================================================
+// Mapa índice → id da view (necessário pois os índices não são sequenciais no DOM)
+const TAB_VIEW_IDS = { 0: 'view-0', 6: 'view-suporte', 1: 'view-7', 2: 'view-3' };
+
 function switchTab(idx) {
-  document.querySelectorAll('.view').forEach((v, i) => v.classList.toggle('active', i === idx));
-  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  // Ativa a view pelo id mapeado ou por posição DOM (abas sem mapa)
+  const viewId = TAB_VIEW_IDS[idx];
+  if (viewId) {
+    document.getElementById(viewId)?.classList.add('active');
+  } else {
+    // Fallback: posição DOM (para NPS=3, CND=4, Colaboradores=5)
+    const domIdx = [0,6,1,2,3,4,5].indexOf(idx); // ordem das tabs no nav
+    document.querySelectorAll('.view')[domIdx]?.classList.add('active');
+  }
+  document.querySelectorAll('.tab-btn')[([0,6,1,2,3,4,5].indexOf(idx))]?.classList.add('active');
   activeTab = idx;
   renderView(idx);
 }
@@ -1040,6 +1069,7 @@ function renderActiveView() { renderView(activeTab); }
 function renderView(idx) {
   switch(idx) {
     case 0: renderChamadosPorCliente(); renderChamadosPorVertical(); break;
+    case 6: renderChamadosSuporte(); break;
     case 1: renderImplantacoes(); break;
     case 2: renderRisco(); break;
     case 3: renderNPSGeral(); renderNPSPorCliente(); break;
@@ -1126,11 +1156,12 @@ function _parseSloStr(s) {
   return neg ? -val : val;
 }
 
-function openChamadosModal(td) {
-  const mun  = td.dataset.mun;
-  const vert = td.dataset.vert;
+function openChamadosModal(td, source) {
+  const mun       = td.dataset.mun;
+  const vert      = td.dataset.vert;
+  const pool      = source === 'suporte' ? state.suporteIssues : state.chamadosIssues;
   // Ordena do SLO mais negativo (mais excedido) ao mais positivo; sem dado no fim
-  const issues = state.chamadosIssues
+  const issues = pool
     .filter(r => r.municipio === mun && r.vertical === vert)
     .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
   document.getElementById('chamados-modal-title').textContent = `${mun} — ${vert}`;
@@ -1368,6 +1399,181 @@ function renderChamadosPorVertical() {
             <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
           </tr>
         </tfoot>
+      </table>
+    </div>
+    ${legendaHtml}`;
+}
+
+// ============================================================
+// VIEW 6 — Chamados de Suporte (Suporte + Residente)
+// ============================================================
+function renderChamadosSuporte() {
+  const container = document.getElementById('suporte-content');
+  if (!container) return;
+
+  if (!state.suporte.length && !state.suporteIssues.length) {
+    unavailable(container, 'Dados de Chamados de Suporte indisponíveis. Execute o Apps Script para popular a aba Jira_Chamados_Suporte.');
+    return;
+  }
+
+  // ── Agregações ──────────────────────────────────────────────
+  const munMap = {}, sloMap = {};
+  state.suporte.forEach(r => {
+    const m = r.municipio || 'Não informado';
+    const v = r.vertical  || 'Não informado';
+    if (!munMap[m]) munMap[m] = { total: 0 };
+    if (!sloMap[m]) sloMap[m] = {};
+    const n   = parseInt(r.total_chamados) || 0;
+    const slo = parseInt(r.slo_estourado)  || 0;
+    munMap[m][v] = (munMap[m][v] || 0) + n;
+    munMap[m].total += n;
+    sloMap[m][v] = (sloMap[m][v] || 0) + slo;
+  });
+
+  const totalAbertos   = Object.values(munMap).reduce((s, m) => s + m.total, 0);
+  const totalSloEstour = state.suporte.reduce((s, r) => s + (parseInt(r.slo_estourado) || 0), 0);
+
+  // Triagem: issues cujo status contém "triagem" (case-insensitive)
+  const triagem = state.suporteIssues
+    .filter(r => (r.status || '').toLowerCase().includes('triagem'))
+    .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
+  const totalTriagem       = triagem.length;
+  const triagemSloEstourado = triagem.filter(r => (r.slo_horas || '').startsWith('-')).length;
+
+  // ── KPI Cards ───────────────────────────────────────────────
+  const kpiHtml = `
+    <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:2rem;font-weight:700;color:#2563EB;line-height:1">${totalAbertos}</div>
+        <div style="font-size:.68rem;font-weight:600;color:#3B82F6;text-transform:uppercase;margin-top:4px">Total em Aberto</div>
+      </div>
+      <div style="background:${totalSloEstour > 0 ? '#FEF2F2' : '#F0FDF4'};border:1px solid ${totalSloEstour > 0 ? '#FECACA' : '#86EFAC'};border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:2rem;font-weight:700;color:${totalSloEstour > 0 ? '#DC2626' : '#15803D'};line-height:1">${totalSloEstour}</div>
+        <div style="font-size:.68rem;font-weight:600;color:${totalSloEstour > 0 ? '#EF4444' : '#16A34A'};text-transform:uppercase;margin-top:4px">SLO Estourado</div>
+      </div>
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:2rem;font-weight:700;color:#B45309;line-height:1">${totalTriagem}</div>
+        <div style="font-size:.68rem;font-weight:600;color:#D97706;text-transform:uppercase;margin-top:4px">Aguard. Triagem</div>
+      </div>
+      <div style="background:${triagemSloEstourado > 0 ? '#FEF2F2' : '#F8FAFC'};border:1px solid ${triagemSloEstourado > 0 ? '#FECACA' : '#E2E8F0'};border-radius:8px;padding:12px 20px;text-align:center;min-width:130px">
+        <div style="font-size:2rem;font-weight:700;color:${triagemSloEstourado > 0 ? '#DC2626' : '#64748B'};line-height:1">${triagemSloEstourado}</div>
+        <div style="font-size:.68rem;font-weight:600;color:${triagemSloEstourado > 0 ? '#EF4444' : '#94A3B8'};text-transform:uppercase;margin-top:4px">Triagem c/ SLO Estourado</div>
+      </div>
+    </div>`;
+
+  // ── Seção: Aguardando Triagem × SLO ─────────────────────────
+  let triagemHtml = '';
+  if (triagem.length > 0) {
+    const rows = triagem.map((r, i) => {
+      const bg       = i % 2 === 0 ? '#fff' : '#F8FAFC';
+      const sloVal   = r.slo_horas || '—';
+      const sloExc   = sloVal.startsWith('-');
+      const sloColor = sloVal === '—' ? '#94A3B8' : sloExc ? '#B91C1C' : '#15803D';
+      const sloBg    = sloVal === '—' ? 'transparent' : sloExc ? '#FEE2E2' : '#DCFCE7';
+      const sloBorder= sloVal === '—' ? 'transparent' : sloExc ? '#FECACA' : '#86EFAC';
+      const link     = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : r.key;
+      return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
+        <td style="padding:6px 12px;white-space:nowrap">${link}</td>
+        <td style="padding:6px 12px;font-size:.8rem">${r.municipio || '—'}</td>
+        <td style="padding:6px 12px;font-size:.8rem">${r.vertical || '—'}</td>
+        <td style="padding:6px 12px;text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span></td>
+        <td style="padding:6px 12px;font-size:.78rem"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;white-space:nowrap">${r.status || '—'}</span></td>
+      </tr>`;
+    }).join('');
+    triagemHtml = `
+      <div style="margin-bottom:24px">
+        <div style="font-size:.9rem;font-weight:700;color:#1E3A5F;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+          ⏳ Aguardando Triagem × SLO
+          <span style="font-size:.72rem;font-weight:400;color:#718096">${triagem.length} chamado(s) — ordenado por SLO mais crítico</span>
+        </div>
+        <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+          <table style="width:100%;border-collapse:collapse;font-family:inherit;font-size:.82rem">
+            <thead><tr style="background:#1E3A5F;color:#fff">
+              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap">Código</th>
+              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Município</th>
+              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Vertical</th>
+              <th style="padding:8px 12px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap">SLO</th>
+              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Status</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  // ── Tabela por Vertical ──────────────────────────────────────
+  const verticais  = [...new Set(state.suporte.map(r => r.vertical || 'Não informado'))].sort();
+  const municipios = Object.entries(munMap)
+    .sort((a, b) => b[1].total - a[1].total).map(e => e[0]);
+  const totalGeral = municipios.reduce((s, m) => s + munMap[m].total, 0);
+
+  const thStyle = `padding:8px 8px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+  const thFirst = `padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
+  const cb      = `padding:5px 8px;text-align:center;font-size:.8rem;border-right:1px solid #EDF2F7`;
+
+  const headerCells = verticais.map(v =>
+    `<th style="${thStyle}" title="${v}">${v.length > 9 ? v.slice(0,8)+'…' : v}</th>`).join('');
+
+  const footTotais = {};
+  verticais.forEach(v => {
+    footTotais[v] = { total: 0, slo: 0 };
+    municipios.forEach(m => { footTotais[v].total += munMap[m][v] || 0; footTotais[v].slo += (sloMap[m] && sloMap[m][v]) || 0; });
+  });
+
+  const bodyRows = municipios.map((m, ri) => {
+    const bg = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+    const cells = verticais.map(v => {
+      const val      = munMap[m][v] || 0;
+      const slo      = (sloMap[m] && sloMap[m][v]) || 0;
+      const munAttr  = m.replace(/"/g,'&quot;');
+      const vertAttr = v.replace(/"/g,'&quot;');
+      if (!val) return `<td style="${cb};color:#CBD5E0">—</td>`;
+      const bg2    = slo > 0 ? '#FEE2E2' : '#EFF6FF';
+      const color  = slo > 0 ? '#B91C1C' : '#2563EB';
+      const border = slo > 0 ? '#FECACA' : '#BFDBFE';
+      return `<td style="${cb};background:${bg2};color:${color};font-weight:600;border:1px solid ${border};cursor:pointer"
+                data-mun="${munAttr}" data-vert="${vertAttr}"
+                onclick="openChamadosModal(this,'suporte')"
+                title="${slo > 0 ? munAttr+' · '+vertAttr+' — '+slo+' com SLO estourado' : 'Ver chamados: '+munAttr+' · '+vertAttr}">${val}</td>`;
+    }).join('');
+    const totalCor = ((sloMap[m] && Object.values(sloMap[m]).some(s => s > 0)) ? '#B91C1C' : '#1E3A5F');
+    return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
+      <td style="padding:6px 12px;font-size:.8rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
+      ${cells}
+      <td style="padding:6px 8px;text-align:center;font-size:.8rem;font-weight:700;border-left:1px solid #CBD5E0;color:${totalCor}">${munMap[m].total}</td>
+    </tr>`;
+  }).join('');
+
+  const footCells = verticais.map(v => {
+    const f = footTotais[v];
+    if (!f.total) return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
+    const cor = f.slo > 0 ? '#B91C1C' : '#2563EB';
+    return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:${cor};background:#EDF2F7;border-right:1px solid #CBD5E0">${f.total}</td>`;
+  }).join('');
+
+  const legendaHtml = `
+    <div style="display:flex;gap:16px;margin-top:12px;font-size:.73rem;color:var(--text-muted);flex-wrap:wrap;align-items:center">
+      <strong style="color:var(--text)">Legenda:</strong>
+      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEE2E2;border:1px solid #FECACA"></span> Com SLO estourado</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span> Sem SLO estourado</span>
+      <span style="color:#94A3B8;font-style:italic">Clique na célula para ver os chamados</span>
+    </div>`;
+
+  container.innerHTML = kpiHtml + triagemHtml + `
+    <div style="font-size:.9rem;font-weight:700;color:#1E3A5F;margin-bottom:8px">📊 Chamados por Vertical</div>
+    <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+      <table style="width:100%;border-collapse:collapse;font-family:inherit">
+        <thead><tr style="background:#1E3A5F;color:#fff">
+          <th style="${thFirst}">Município</th>
+          ${headerCells}
+          <th style="${thStyle}">T</th>
+        </tr></thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot><tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
+          <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
+          ${footCells}
+          <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
+        </tr></tfoot>
       </table>
     </div>
     ${legendaHtml}`;
