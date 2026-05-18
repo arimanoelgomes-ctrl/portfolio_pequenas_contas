@@ -525,6 +525,9 @@
         <div class="view-subtitle">Distribuição de chamados por vertical dentro de cada município • Fonte: Jira</div>
         <div id="view1-content"></div>
       </div>
+      <div style="margin-top:36px;padding-top:28px;border-top:2px solid #E2E8F0">
+        <div id="atendimento-content"></div>
+      </div>
     </div>
 
     <!-- View: Implantações (pos 2) -->
@@ -1072,7 +1075,7 @@ function renderActiveView() { renderView(activeTab); }
 
 function renderView(idx) {
   switch(idx) {
-    case 0: renderChamadosPorCliente(); renderChamadosPorVertical(); break;
+    case 0: renderChamadosPorCliente(); renderChamadosPorVertical(); renderChamadosAtendimento(); break;
     case 6: renderChamadosSuporte(); break;
     case 1: renderImplantacoes(); break;
     case 2: renderRisco(); break;
@@ -1409,6 +1412,95 @@ function renderChamadosPorVertical() {
 }
 
 // ============================================================
+// HELPER — linha de issue para tabelas de SLO (reutilizado por Serviço e Suporte)
+// ============================================================
+function _buildIssueRow(r, i) {
+  const bg        = i % 2 === 0 ? '#fff' : '#F8FAFC';
+  const sloVal    = r.slo_horas || '—';
+  const sloExc    = sloVal.startsWith('-');
+  const sloColor  = sloVal === '—' ? '#94A3B8' : sloExc ? '#B91C1C' : '#15803D';
+  const sloBg     = sloVal === '—' ? 'transparent' : sloExc ? '#FEE2E2' : '#DCFCE7';
+  const sloBorder = sloVal === '—' ? 'transparent' : sloExc ? '#FECACA' : '#86EFAC';
+  const link      = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : r.key;
+  return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
+    <td style="padding:6px 12px;white-space:nowrap">${link}</td>
+    <td style="padding:6px 12px;font-size:.8rem">${r.municipio || '—'}</td>
+    <td style="padding:6px 12px;text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span></td>
+    <td style="padding:6px 12px;font-size:.78rem"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;white-space:nowrap">${r.status || '—'}</span></td>
+  </tr>`;
+}
+
+// ============================================================
+// HELPER — monta bloco de tabelas por vertical para seções de SLO
+// issues: array já filtrado e ordenado; titulo: texto do cabeçalho da seção
+// ============================================================
+function _renderIssuesPorVertical(container, issues, titulo) {
+  if (!issues.length) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const porVertical = {};
+  issues.forEach(r => {
+    const v = r.vertical || 'Não informado';
+    if (!porVertical[v]) porVertical[v] = [];
+    porVertical[v].push(r);
+  });
+  const verticais = Object.keys(porVertical).sort();
+
+  const tabelasPorVertical = verticais.map(v => {
+    const itens = porVertical[v];
+    const sloEstourado = itens.filter(r => (r.slo_horas || '').startsWith('-')).length;
+    const badgeCor = sloEstourado > 0
+      ? 'background:#FEE2E2;color:#B91C1C;border:1px solid #FECACA'
+      : 'background:#DCFCE7;color:#15803D;border:1px solid #86EFAC';
+    const rows = itens.map((r, i) => _buildIssueRow(r, i)).join('');
+    return `
+      <div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:.82rem;font-weight:700;color:#1E3A5F">${v}</span>
+          <span style="font-size:.72rem;font-weight:600;padding:1px 8px;border-radius:10px;${badgeCor}">
+            ${sloEstourado > 0 ? sloEstourado + ' com SLO estourado' : '✓ Sem SLO estourado'}
+          </span>
+          <span style="font-size:.72rem;color:#718096">${itens.length} chamado(s)</span>
+        </div>
+        <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+          <table style="width:100%;border-collapse:collapse;font-family:inherit;font-size:.82rem">
+            <thead><tr style="background:#1E3A5F;color:#fff">
+              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap">Código</th>
+              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Município</th>
+              <th style="padding:8px 12px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap">SLO</th>
+              <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Status</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="font-size:.9rem;font-weight:700;color:#1E3A5F;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+      ${titulo}
+      <span style="font-size:.72rem;font-weight:400;color:#718096">${issues.length} chamado(s) em ${verticais.length} vertical(is) — ordenado por SLO mais crítico</span>
+    </div>
+    ${tabelasPorVertical}`;
+}
+
+// ============================================================
+// VIEW 0 — Aguardando Atendimento × SLO (Chamados de Serviço)
+// ============================================================
+function renderChamadosAtendimento() {
+  const container = document.getElementById('atendimento-content');
+  if (!container) return;
+
+  const issues = state.chamadosIssues
+    .filter(r => (r.status || '').toLowerCase().includes('atendimento'))
+    .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
+
+  _renderIssuesPorVertical(container, issues, '⏳ Aguardando Atendimento × SLO de Atendimento');
+}
+
+// ============================================================
 // VIEW 6 — Chamados de Suporte (Suporte + Residente)
 // ============================================================
 function renderChamadosSuporte() {
@@ -1465,73 +1557,7 @@ function renderChamadosSuporte() {
       </div>
     </div>`;
 
-  // ── Seção: Aguardando Triagem × SLO — uma tabela por vertical ─
-  const _buildTriagemRow = (r, i) => {
-    const bg        = i % 2 === 0 ? '#fff' : '#F8FAFC';
-    const sloVal    = r.slo_horas || '—';
-    const sloExc    = sloVal.startsWith('-');
-    const sloColor  = sloVal === '—' ? '#94A3B8' : sloExc ? '#B91C1C' : '#15803D';
-    const sloBg     = sloVal === '—' ? 'transparent' : sloExc ? '#FEE2E2' : '#DCFCE7';
-    const sloBorder = sloVal === '—' ? 'transparent' : sloExc ? '#FECACA' : '#86EFAC';
-    const link      = r.url ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>` : r.key;
-    return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
-      <td style="padding:6px 12px;white-space:nowrap">${link}</td>
-      <td style="padding:6px 12px;font-size:.8rem">${r.municipio || '—'}</td>
-      <td style="padding:6px 12px;text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span></td>
-      <td style="padding:6px 12px;font-size:.78rem"><span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#EDF2F7;white-space:nowrap">${r.status || '—'}</span></td>
-    </tr>`;
-  };
-
-  let triagemHtml = '';
-  if (triagem.length > 0) {
-    // Agrupar por vertical (mantendo ordenação por SLO dentro de cada grupo)
-    const triagemPorVertical = {};
-    triagem.forEach(r => {
-      const v = r.vertical || 'Não informado';
-      if (!triagemPorVertical[v]) triagemPorVertical[v] = [];
-      triagemPorVertical[v].push(r);
-    });
-    const verticaisTriagem = Object.keys(triagemPorVertical).sort();
-
-    const tabelasPorVertical = verticaisTriagem.map(v => {
-      const itens = triagemPorVertical[v];
-      const sloEstouradoV = itens.filter(r => (r.slo_horas || '').startsWith('-')).length;
-      const badgeCor = sloEstouradoV > 0
-        ? 'background:#FEE2E2;color:#B91C1C;border:1px solid #FECACA'
-        : 'background:#DCFCE7;color:#15803D;border:1px solid #86EFAC';
-      const rows = itens.map((r, i) => _buildTriagemRow(r, i)).join('');
-      return `
-        <div style="margin-bottom:16px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <span style="font-size:.82rem;font-weight:700;color:#1E3A5F">${v}</span>
-            <span style="font-size:.72rem;font-weight:600;padding:1px 8px;border-radius:10px;${badgeCor}">
-              ${sloEstouradoV > 0 ? sloEstouradoV + ' com SLO estourado' : '✓ Sem SLO estourado'}
-            </span>
-            <span style="font-size:.72rem;color:#718096">${itens.length} chamado(s)</span>
-          </div>
-          <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
-            <table style="width:100%;border-collapse:collapse;font-family:inherit;font-size:.82rem">
-              <thead><tr style="background:#1E3A5F;color:#fff">
-                <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap">Código</th>
-                <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Município</th>
-                <th style="padding:8px 12px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap">SLO</th>
-                <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Status</th>
-              </tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
-        </div>`;
-    }).join('');
-
-    triagemHtml = `
-      <div style="margin-bottom:24px">
-        <div style="font-size:.9rem;font-weight:700;color:#1E3A5F;margin-bottom:12px;display:flex;align-items:center;gap:8px">
-          ⏳ Aguardando Triagem × SLO
-          <span style="font-size:.72rem;font-weight:400;color:#718096">${triagem.length} chamado(s) em ${verticaisTriagem.length} vertical(is) — ordenado por SLO mais crítico</span>
-        </div>
-        ${tabelasPorVertical}
-      </div>`;
-  }
+  // ── Seção: Aguardando Triagem × SLO — renderizada via helper após montar o DOM ─
 
   // ── Tabela por Vertical ──────────────────────────────────────
   const verticais  = [...new Set(state.suporte.map(r => r.vertical || 'Não informado'))].sort();
@@ -1591,7 +1617,7 @@ function renderChamadosSuporte() {
       <span style="color:#94A3B8;font-style:italic">Clique na célula para ver os chamados</span>
     </div>`;
 
-  container.innerHTML = kpiHtml + triagemHtml + `
+  container.innerHTML = kpiHtml + `<div id="suporte-triagem-content" style="margin-bottom:24px"></div>` + `
     <div style="font-size:.9rem;font-weight:700;color:#1E3A5F;margin-bottom:8px">📊 Chamados por Vertical</div>
     <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
       <table style="width:100%;border-collapse:collapse;font-family:inherit">
@@ -1609,6 +1635,13 @@ function renderChamadosSuporte() {
       </table>
     </div>
     ${legendaHtml}`;
+
+  // Renderiza tabelas de triagem por vertical no placeholder já no DOM
+  _renderIssuesPorVertical(
+    document.getElementById('suporte-triagem-content'),
+    triagem,
+    '⏳ Aguardando Triagem × SLO'
+  );
 }
 
 // ============================================================
