@@ -2727,49 +2727,51 @@ function _updateImplPivot() {
   const fMunL  = fMun.toLowerCase();
   const fProdL = fProd.toLowerCase();
 
-  // Conjunto de (municipio||vertical) com issues que batem no filtro de produto
-  let prodSet = null;
+  // prodMatchSet: células (mun||vert) que TÊM issues com o texto do produto
+  let prodMatchSet = null;
   if (fProdL) {
-    prodSet = new Set();
+    prodMatchSet = new Set();
     state.implantacoesIssues.forEach(r => {
       if ((r.summary || '').toLowerCase().includes(fProdL)) {
-        prodSet.add((r.municipio || '').trim() + '||' + (r.vertical || '').trim());
+        prodMatchSet.add((r.municipio || '').trim() + '||' + (r.vertical || '').trim());
       }
     });
   }
 
   const { munMap, municipios } = _implData;
 
-  // Verticais visíveis (filtro de vertical com modo include/exclude)
+  // Verticais visíveis — filtro Vertical opera em colunas (include = só essa, exclude = todas exceto essa)
   const verticais = fVert
-    ? (modeVert === 'exclude'
-        ? IMPL_VERTICAIS.filter(v => v !== fVert)
-        : [fVert])
+    ? (modeVert === 'exclude' ? IMPL_VERTICAIS.filter(v => v !== fVert) : [fVert])
     : IMPL_VERTICAIS;
 
-  // Municípios visíveis após filtros de município e produto
+  // Municípios visíveis — filtro Município opera em linhas
+  // filtro Produto NÃO remove linhas: opera apenas em células
   const munFiltrados = municipios.filter(m => {
-    // Filtro município
     if (fMunL) {
       const match = m.toLowerCase().includes(fMunL);
       if (modeMun === 'exclude' ? match : !match) return false;
     }
-    // Filtro produto
-    if (prodSet) {
-      const hasProd = verticais.some(v => prodSet.has(m + '||' + v));
-      if (modeProd === 'exclude' ? hasProd : !hasProd) return false;
-    }
     return true;
   });
 
-  // Totais de rodapé sobre os dados filtrados
+  // Função auxiliar: decide se uma célula (m, v) deve ser exibida dado o filtro de produto
+  // include → exibe só células que TÊM o produto
+  // exclude → exibe só células que NÃO TÊM o produto (ou que não têm issues nenhuma)
+  const cellPassesProd = (m, v) => {
+    if (!prodMatchSet) return true;
+    const has = prodMatchSet.has(m + '||' + v);
+    return modeProd === 'exclude' ? !has : has;
+  };
+
+  // Totais de rodapé — considera apenas células que passam no filtro de produto
   const footTotais = {};
   verticais.forEach(v => {
     footTotais[v] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
     munFiltrados.forEach(m => {
+      if (!cellPassesProd(m, v)) return;
       const c = munMap[m][v];
       if (!c) return;
-      if (prodSet && !prodSet.has(m + '||' + v)) return; // célula sem produto filtrado
       footTotais[v].total     += c.total;
       footTotais[v].atrasados += c.atrasados;
       footTotais[v].no_prazo  += c.no_prazo;
@@ -2794,10 +2796,11 @@ function _updateImplPivot() {
   const bodyRows = munFiltrados.map((m, ri) => {
     const bg  = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
     const mun = munMap[m];
+
     const cells = verticais.map(v => {
+      // Produto opera em célula: se não passa, mostra "—"
+      if (!cellPassesProd(m, v)) return `<td style="${cb};color:#CBD5E0">—</td>`;
       const cell = mun[v];
-      // Oculta célula se filtro de produto ativo e a célula não tem match
-      if (prodSet && !prodSet.has(m + '||' + v)) return `<td style="${cb};color:#CBD5E0">—</td>`;
       if (!cell || cell.total === 0) return `<td style="${cb};color:#CBD5E0">—</td>`;
       const s = implCellStyle(cell);
       const tipParts = [];
@@ -2808,24 +2811,17 @@ function _updateImplPivot() {
       const vertAttr = v.replace(/"/g, '&quot;');
       return `<td style="${cb};background:${s.bg};color:${s.text};font-weight:600;border:1px solid ${s.border};cursor:pointer" title="${tipParts.join(' · ')}" data-mun="${munAttr}" data-vert="${vertAttr}" onclick="openImplModal(this)">${cell.total}</td>`;
     }).join('');
-    // Total da linha: considera só verticais visíveis e filtro de produto
-    const linhaTotal = verticais.reduce((s, v) => {
-      if (prodSet && !prodSet.has(m + '||' + v)) return s;
-      return s + ((mun[v] && mun[v].total) || 0);
-    }, 0);
-    const linhaAtraso = verticais.reduce((s, v) => {
-      if (prodSet && !prodSet.has(m + '||' + v)) return s;
-      return s + ((mun[v] && mun[v].atrasados) || 0);
-    }, 0);
-    const linhaPrazo = verticais.reduce((s, v) => {
-      if (prodSet && !prodSet.has(m + '||' + v)) return s;
-      return s + ((mun[v] && mun[v].no_prazo) || 0);
-    }, 0);
+
+    // Total e cor da linha considerando apenas células visíveis
+    const linhaTotal  = verticais.reduce((s, v) => cellPassesProd(m, v) ? s + ((mun[v] && mun[v].total)     || 0) : s, 0);
+    const linhaAtraso = verticais.reduce((s, v) => cellPassesProd(m, v) ? s + ((mun[v] && mun[v].atrasados) || 0) : s, 0);
+    const linhaPrazo  = verticais.reduce((s, v) => cellPassesProd(m, v) ? s + ((mun[v] && mun[v].no_prazo)  || 0) : s, 0);
     const totalCor = linhaAtraso > 0 ? '#B91C1C' : linhaPrazo > 0 ? '#15803D' : '#475569';
+
     return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
       <td style="padding:6px 12px;font-size:.8rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
       ${cells}
-      <td style="padding:6px 8px;text-align:center;font-size:.8rem;font-weight:700;border-left:1px solid #CBD5E0;color:${totalCor}">${linhaTotal}</td>
+      <td style="padding:6px 8px;text-align:center;font-size:.8rem;font-weight:700;border-left:1px solid #CBD5E0;color:${totalCor}">${linhaTotal || '—'}</td>
     </tr>`;
   }).join('');
 
