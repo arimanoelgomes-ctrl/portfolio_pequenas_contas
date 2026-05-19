@@ -18,7 +18,7 @@
 //      Executar como: Eu (seu usuário)
 //      Quem tem acesso: Qualquer pessoa
 //    Copie a URL gerada → cole em CONFIG.APPS_SCRIPT_URL no index.html
-// 6. Execute setupTrigger() para ativar atualização automática (6h)
+// 6. Execute setupTrigger() para ativar atualização automática (07:00 | 09:30 | 12:00 | 15:30 | 17:00)
 // ============================================================
 
 const SHEET_ID_DEFAULT = '1MKsApbL7IPf5jAsAO9N03AxAcC3ptzYbrgNQrOr_R4s';
@@ -135,7 +135,7 @@ const SLEEP_MS             = 200;
 const HIST_RETENTION_DAYS  = 90;  // dias de retenção nas abas _Hist
 
 // ────────────────────────────────────────────────────────────
-// ENTRY POINT — disparado automaticamente pelo trigger (6h)
+// ENTRY POINT — disparado automaticamente pelos triggers (07:00 | 09:30 | 12:00 | 15:30 | 17:00)
 // ────────────────────────────────────────────────────────────
 function onTimeTrigger() {
   const inicio = new Date();
@@ -1133,15 +1133,34 @@ function snapshotRiscoExclusaoHistory() {
 }
 
 // ────────────────────────────────────────────────────────────
-// SETUP — instala trigger automático (executar UMA vez)
+// SETUP — instala triggers automáticos (executar UMA vez)
+// Horários: 07:00 | 09:30 | 12:00 | 15:30 | 17:00
 // ────────────────────────────────────────────────────────────
 function setupTrigger() {
+  // Remove todos os triggers existentes de onTimeTrigger
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'onTimeTrigger')
     .forEach(t => ScriptApp.deleteTrigger(t));
 
-  ScriptApp.newTrigger('onTimeTrigger').timeBased().everyHours(6).create();
-  Logger.log('✅ Trigger instalado: onTimeTrigger a cada 6 horas.');
+  // Define os 5 horários diários [hora, minuto]
+  const horarios = [
+    [7,  0],   // 07:00
+    [9,  30],  // 09:30
+    [12, 0],   // 12:00
+    [15, 30],  // 15:30
+    [17, 0],   // 17:00
+  ];
+
+  horarios.forEach(([hora, minuto]) => {
+    ScriptApp.newTrigger('onTimeTrigger')
+      .timeBased()
+      .everyDays(1)
+      .atHour(hora)
+      .nearMinute(minuto)
+      .create();
+  });
+
+  Logger.log('✅ 5 triggers instalados: 07:00 | 09:30 | 12:00 | 15:30 | 17:00');
 }
 
 // ────────────────────────────────────────────────────────────
