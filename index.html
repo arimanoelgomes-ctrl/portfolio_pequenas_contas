@@ -1216,15 +1216,17 @@ function _parseSloStr(s) {
 }
 
 // Contexto do modal de chamados — usado pelo CSV
-let _chamadosModalCtx = { issues: [], showMunVert: false, title: '' };
+let _chamadosModalCtx = { issues: [], showMunVert: false, title: '', source: '' };
 
-function _buildChamadosTable(issues, showMunVert) {
+function _buildChamadosTable(issues, showMunVert, source) {
   if (!issues.length) {
     return '<p style="text-align:center;color:#94A3B8;padding:20px">Nenhum chamado encontrado — execute o Apps Script para popular a aba de issues.</p>';
   }
-  const munVertHead = showMunVert
+  const isServico    = source !== 'suporte';
+  const munVertHead  = showMunVert
     ? '<th style="width:130px">Município</th><th style="width:100px">Vertical</th>'
     : '';
+  const tipoHead     = isServico ? '<th style="width:130px">Tipo</th>' : '';
   const rows = issues.map(r => {
     const link = r.url
       ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>`
@@ -1238,11 +1240,15 @@ function _buildChamadosTable(issues, showMunVert) {
     const munVertCells = showMunVert
       ? `<td style="white-space:nowrap;font-size:.78rem">${r.municipio || '—'}</td><td style="font-size:.78rem;white-space:nowrap">${r.vertical || '—'}</td>`
       : '';
+    const tipoCell = isServico
+      ? `<td style="white-space:nowrap;font-size:.78rem;color:#4A5568">${r.issuetype || '—'}</td>`
+      : '';
     return `<tr>
       <td style="white-space:nowrap">${link}</td>
       ${munVertCells}
       <td>${r.summary || '—'}</td>
       <td style="white-space:nowrap;font-size:.78rem;color:#4A5568">${r.responsavel || '—'}</td>
+      ${tipoCell}
       <td style="text-align:center">${sloBadge}</td>
       <td style="text-align:left"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
     </tr>`;
@@ -1253,6 +1259,7 @@ function _buildChamadosTable(issues, showMunVert) {
       ${munVertHead}
       <th>Resumo</th>
       <th style="width:140px">Responsável</th>
+      ${tipoHead}
       <th style="width:110px;text-align:center">SLO</th>
       <th style="width:200px;text-align:center">Status</th>
     </tr></thead>
@@ -1267,10 +1274,11 @@ function openChamadosModal(td, source) {
   const issues = pool
     .filter(r => r.municipio === mun && r.vertical === vert)
     .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
+  const src   = source || 'servico';
   const title = `${mun} — ${vert}`;
-  _chamadosModalCtx = { issues, showMunVert: false, title };
+  _chamadosModalCtx = { issues, showMunVert: false, title, source: src };
   document.getElementById('chamados-modal-title').textContent = title;
-  document.getElementById('chamados-modal-content').innerHTML = _buildChamadosTable(issues, false);
+  document.getElementById('chamados-modal-content').innerHTML = _buildChamadosTable(issues, false, src);
   document.getElementById('chamados-detail-modal').classList.remove('hidden');
 }
 
@@ -1282,20 +1290,23 @@ function openChamadosTotalModal(source, vert) {
   const title = vert === '__all__'
     ? `Total Geral — ${src} — todos os chamados`
     : `Total — ${src} · ${vert}`;
-  _chamadosModalCtx = { issues, showMunVert: true, title };
+  _chamadosModalCtx = { issues, showMunVert: true, title, source };
   document.getElementById('chamados-modal-title').textContent = title;
-  document.getElementById('chamados-modal-content').innerHTML = _buildChamadosTable(issues, true);
+  document.getElementById('chamados-modal-content').innerHTML = _buildChamadosTable(issues, true, source);
   document.getElementById('chamados-detail-modal').classList.remove('hidden');
 }
 
 function exportChamadosModalCSV() {
   const { issues, showMunVert, title } = _chamadosModalCtx;
   if (!issues.length) return;
-  const header = ['Código', 'URL', ...(showMunVert ? ['Município', 'Vertical'] : []), 'Resumo', 'Responsável', 'SLO', 'Status'];
+  const isServico = _chamadosModalCtx.source !== 'suporte';
+  const header = ['Código', 'URL', ...(showMunVert ? ['Município', 'Vertical'] : []), 'Resumo', 'Responsável', ...(isServico ? ['Tipo'] : []), 'SLO', 'Status'];
   const rows = issues.map(r => {
     const cols = [r.key || '', r.url || ''];
     if (showMunVert) { cols.push(r.municipio || '', r.vertical || ''); }
-    cols.push((r.summary || '').replace(/"/g, '""'), r.responsavel || '', r.slo_horas || '', r.status || '');
+    cols.push((r.summary || '').replace(/"/g, '""'), r.responsavel || '');
+    if (isServico) { cols.push(r.issuetype || ''); }
+    cols.push(r.slo_horas || '', r.status || '');
     return cols.map(v => `"${v}"`).join(',');
   });
   const csv  = [header.map(v => `"${v}"`).join(','), ...rows].join('\r\n');
