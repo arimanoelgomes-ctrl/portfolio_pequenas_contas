@@ -651,22 +651,15 @@
 
 <!-- Modal: detalhes de chamados -->
 <div class="modal-overlay hidden" id="chamados-detail-modal" onclick="closeChamadosModal(event)">
-  <div class="modal-box" style="max-width:960px;width:95%">
-    <div class="modal-header">
-      <h3 id="chamados-modal-title">Chamados</h3>
-      <button class="modal-close" onclick="closeChamadosModal()">✕</button>
+  <div class="modal-box" style="max-width:1050px;width:95%">
+    <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
+      <h3 id="chamados-modal-title" style="margin:0">Chamados</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="exportChamadosModalCSV()" style="padding:4px 13px;border:1px solid #CBD5E0;border-radius:6px;background:#F7FAFC;font-size:.8rem;color:#2D3748;cursor:pointer;font-weight:600">⬇ Exportar CSV</button>
+        <button class="modal-close" onclick="closeChamadosModal()">✕</button>
+      </div>
     </div>
-    <div class="modal-body" style="max-height:70vh;overflow-y:auto">
-      <table class="modal-table" style="font-size:.82rem">
-        <thead><tr>
-          <th style="width:110px">Código</th>
-          <th>Resumo</th>
-          <th style="width:110px;text-align:center">SLO</th>
-          <th style="width:200px;text-align:center">Status</th>
-        </tr></thead>
-        <tbody id="chamados-modal-body"></tbody>
-      </table>
-    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto" id="chamados-modal-content"></div>
   </div>
 </div>
 
@@ -1222,38 +1215,95 @@ function _parseSloStr(s) {
   return neg ? -val : val;
 }
 
+// Contexto do modal de chamados — usado pelo CSV
+let _chamadosModalCtx = { issues: [], showMunVert: false, title: '' };
+
+function _buildChamadosTable(issues, showMunVert) {
+  if (!issues.length) {
+    return '<p style="text-align:center;color:#94A3B8;padding:20px">Nenhum chamado encontrado — execute o Apps Script para popular a aba de issues.</p>';
+  }
+  const munVertHead = showMunVert
+    ? '<th style="width:130px">Município</th><th style="width:100px">Vertical</th>'
+    : '';
+  const rows = issues.map(r => {
+    const link = r.url
+      ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>`
+      : (r.key || '—');
+    const sloVal    = r.slo_horas || '—';
+    const sloExc    = sloVal.startsWith('-');
+    const sloColor  = sloVal === '—' ? '#94A3B8' : sloExc ? '#B91C1C' : '#15803D';
+    const sloBg     = sloVal === '—' ? 'transparent' : sloExc ? '#FEE2E2' : '#DCFCE7';
+    const sloBorder = sloVal === '—' ? 'transparent' : sloExc ? '#FECACA' : '#86EFAC';
+    const sloBadge  = `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span>`;
+    const munVertCells = showMunVert
+      ? `<td style="white-space:nowrap;font-size:.78rem">${r.municipio || '—'}</td><td style="font-size:.78rem;white-space:nowrap">${r.vertical || '—'}</td>`
+      : '';
+    return `<tr>
+      <td style="white-space:nowrap">${link}</td>
+      ${munVertCells}
+      <td>${r.summary || '—'}</td>
+      <td style="text-align:center">${sloBadge}</td>
+      <td style="text-align:left"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
+    </tr>`;
+  }).join('');
+  return `<table class="modal-table" style="font-size:.82rem">
+    <thead><tr>
+      <th style="width:110px">Código</th>
+      ${munVertHead}
+      <th>Resumo</th>
+      <th style="width:110px;text-align:center">SLO</th>
+      <th style="width:200px;text-align:center">Status</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 function openChamadosModal(td, source) {
-  const mun       = td.dataset.mun;
-  const vert      = td.dataset.vert;
-  const pool      = source === 'suporte' ? state.suporteIssues : state.chamadosIssues;
-  // Ordena do SLO mais negativo (mais excedido) ao mais positivo; sem dado no fim
+  const mun  = td.dataset.mun;
+  const vert = td.dataset.vert;
+  const pool = source === 'suporte' ? state.suporteIssues : state.chamadosIssues;
   const issues = pool
     .filter(r => r.municipio === mun && r.vertical === vert)
     .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
-  document.getElementById('chamados-modal-title').textContent = `${mun} — ${vert}`;
-  const tbody = document.getElementById('chamados-modal-body');
-  if (!issues.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#94A3B8">Detalhes indisponíveis — execute o Apps Script para popular a aba Jira_Chamados_Issues.</td></tr>';
-  } else {
-    tbody.innerHTML = issues.map(r => {
-      const link = r.url
-        ? `<a href="${r.url}" target="_blank" style="color:#2B6CB0;font-weight:600">${r.key}</a>`
-        : r.key;
-      const sloVal     = r.slo_horas || '—';
-      const sloExceded = sloVal.startsWith('-');
-      const sloColor   = sloVal === '—' ? '#94A3B8' : sloExceded ? '#B91C1C' : '#15803D';
-      const sloBg      = sloVal === '—' ? 'transparent' : sloExceded ? '#FEE2E2' : '#DCFCE7';
-      const sloBorder  = sloVal === '—' ? 'transparent' : sloExceded ? '#FECACA' : '#86EFAC';
-      const sloBadge   = `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:${sloBg};border:1px solid ${sloBorder};color:${sloColor};font-size:.76rem;font-weight:600;white-space:nowrap">${sloVal}</span>`;
-      return `<tr>
-        <td style="white-space:nowrap">${link}</td>
-        <td>${r.summary || '—'}</td>
-        <td style="text-align:center">${sloBadge}</td>
-        <td style="text-align:left"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:#EDF2F7;font-size:.76rem;white-space:nowrap">${r.status || '—'}</span></td>
-      </tr>`;
-    }).join('');
-  }
+  const title = `${mun} — ${vert}`;
+  _chamadosModalCtx = { issues, showMunVert: false, title };
+  document.getElementById('chamados-modal-title').textContent = title;
+  document.getElementById('chamados-modal-content').innerHTML = _buildChamadosTable(issues, false);
   document.getElementById('chamados-detail-modal').classList.remove('hidden');
+}
+
+function openChamadosTotalModal(source, vert) {
+  const pool   = source === 'suporte' ? state.suporteIssues : state.chamadosIssues;
+  const issues = (vert === '__all__' ? [...pool] : pool.filter(r => (r.vertical || '') === vert))
+    .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
+  const src   = source === 'suporte' ? 'Suporte' : 'Serviço';
+  const title = vert === '__all__'
+    ? `Total Geral — ${src} — todos os chamados`
+    : `Total — ${src} · ${vert}`;
+  _chamadosModalCtx = { issues, showMunVert: true, title };
+  document.getElementById('chamados-modal-title').textContent = title;
+  document.getElementById('chamados-modal-content').innerHTML = _buildChamadosTable(issues, true);
+  document.getElementById('chamados-detail-modal').classList.remove('hidden');
+}
+
+function exportChamadosModalCSV() {
+  const { issues, showMunVert, title } = _chamadosModalCtx;
+  if (!issues.length) return;
+  const header = ['Código', 'URL', ...(showMunVert ? ['Município', 'Vertical'] : []), 'Resumo', 'SLO', 'Status'];
+  const rows = issues.map(r => {
+    const cols = [r.key || '', r.url || ''];
+    if (showMunVert) { cols.push(r.municipio || '', r.vertical || ''); }
+    cols.push((r.summary || '').replace(/"/g, '""'), r.slo_horas || '', r.status || '');
+    return cols.map(v => `"${v}"`).join(',');
+  });
+  const csv  = [header.map(v => `"${v}"`).join(','), ...rows].join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `chamados_${title.replace(/[^a-z0-9]/gi, '_').slice(0, 60)}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function closeChamadosModal(e) {
@@ -1432,11 +1482,13 @@ function renderChamadosPorVertical() {
     </tr>`;
   }).join('');
 
+  const tdFoot = `padding:6px 8px;text-align:center;font-size:.78rem;border-right:1px solid #CBD5E0;cursor:pointer`;
   const footCells = verticais.map(v => {
-    const tot = footTotais[v];
+    const tot   = footTotais[v];
+    const vAttr = v.replace(/'/g, "\\'");
     return tot
-      ? `<td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#2563EB;background:#EDF2F7;border-right:1px solid #CBD5E0">${tot}</td>`
-      : `<td style="padding:6px 8px;text-align:center;font-size:.78rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
+      ? `<td style="${tdFoot};font-weight:700;color:#2563EB;background:#EDF2F7" title="Ver lista · ${tot} chamados" onclick="openChamadosTotalModal('servico','${vAttr}')">${tot}</td>`
+      : `<td style="${tdFoot};color:#94A3B8;background:#EDF2F7">—</td>`;
   }).join('');
 
   const legendaHtml = `
@@ -1444,7 +1496,7 @@ function renderChamadosPorVertical() {
       <strong style="color:var(--text)">Legenda:</strong>
       <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEE2E2;border:1px solid #FECACA"></span> Com SLO estourado</span>
       <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span> Sem SLO estourado</span>
-      <span style="color:#94A3B8;font-style:italic">Clique na célula para ver os chamados</span>
+      <span style="color:#94A3B8;font-style:italic">Clique na célula ou nos totais para ver os chamados</span>
     </div>`;
 
   container.innerHTML = `
@@ -1462,7 +1514,7 @@ function renderChamadosPorVertical() {
           <tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
             <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
             ${footCells}
-            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0;cursor:pointer" title="Ver lista completa · ${totalGeral} chamados" onclick="openImplTotalModal('__all__')">${totalGeral}</td>
+            <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0;cursor:pointer" title="Ver lista completa · ${totalGeral} chamados" onclick="openChamadosTotalModal('servico','__all__')">${totalGeral}</td>
           </tr>
         </tfoot>
       </table>
@@ -1664,11 +1716,13 @@ function renderChamadosSuporte() {
     </tr>`;
   }).join('');
 
+  const tdFootS = `padding:6px 8px;text-align:center;font-size:.78rem;border-right:1px solid #CBD5E0;cursor:pointer`;
   const footCells = verticais.map(v => {
-    const f = footTotais[v];
-    if (!f.total) return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;color:#94A3B8;background:#EDF2F7;border-right:1px solid #CBD5E0">—</td>`;
+    const f     = footTotais[v];
+    const vAttr = v.replace(/'/g, "\\'");
+    if (!f.total) return `<td style="${tdFootS};color:#94A3B8;background:#EDF2F7">—</td>`;
     const cor = f.slo > 0 ? '#B91C1C' : '#2563EB';
-    return `<td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:${cor};background:#EDF2F7;border-right:1px solid #CBD5E0">${f.total}</td>`;
+    return `<td style="${tdFootS};font-weight:700;color:${cor};background:#EDF2F7" title="Ver lista · ${f.total} chamados" onclick="openChamadosTotalModal('suporte','${vAttr}')">${f.total}</td>`;
   }).join('');
 
   const legendaHtml = `
@@ -1676,7 +1730,7 @@ function renderChamadosSuporte() {
       <strong style="color:var(--text)">Legenda:</strong>
       <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEE2E2;border:1px solid #FECACA"></span> Com SLO estourado</span>
       <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span> Sem SLO estourado</span>
-      <span style="color:#94A3B8;font-style:italic">Clique na célula para ver os chamados</span>
+      <span style="color:#94A3B8;font-style:italic">Clique na célula ou nos totais para ver os chamados</span>
     </div>`;
 
   container.innerHTML = kpiHtml + `<div id="suporte-triagem-content" style="margin-bottom:24px"></div>` + `
@@ -1692,7 +1746,7 @@ function renderChamadosSuporte() {
         <tfoot><tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
           <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
           ${footCells}
-          <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0">${totalGeral}</td>
+          <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0;cursor:pointer" title="Ver lista completa · ${totalGeral} chamados" onclick="openChamadosTotalModal('suporte','__all__')">${totalGeral}</td>
         </tr></tfoot>
       </table>
     </div>
