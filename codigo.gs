@@ -184,22 +184,16 @@ function _getTcescToken() {
     payload: JSON.stringify({ codigoAcesso: codigoAcesso, senha: senha }),
     muteHttpExceptions: true
   });
-  const code    = resp.getResponseCode();
-  const rawBody = resp.getContentText();
+  const code = resp.getResponseCode();
   if (code !== 200)
-    throw new Error('TCE-SC login HTTP ' + code + ': ' + rawBody.slice(0, 300));
+    throw new Error('TCE-SC login HTTP ' + code + ': ' + resp.getContentText().slice(0, 300));
 
-  // Resposta pode ser: token como string direta, ou JSON com campo token/access_token/jwt
-  let token;
-  if (rawBody.trim().startsWith('{') || rawBody.trim().startsWith('[')) {
-    const data = JSON.parse(rawBody);
-    token = data.token || data.access_token || data.jwt;
-  } else {
-    token = rawBody.trim(); // token como string pura
-  }
+  // Token retornado no header "auth_token" (corpo da resposta é vazio)
+  const headers = resp.getHeaders();
+  const token   = headers['auth_token'] || headers['AUTH_TOKEN'] || headers['Authorization'];
   if (!token)
-    throw new Error('TCE-SC: token nao encontrado. Resposta: ' + rawBody.slice(0, 300));
-  Logger.log('  TCE-SC: autenticado com sucesso.');
+    throw new Error('TCE-SC: token nao encontrado nos headers. Headers: ' + Object.keys(headers).join(', '));
+  Logger.log('  TCE-SC: autenticado com sucesso. Token tamanho=' + token.length);
   return token;
 }
 
@@ -237,17 +231,14 @@ function testarLoginTceSC() {
   });
 
   if (code === 200) {
-    // Verifica header Authorization ou X-Auth-Token ou similar
-    const tokenFromHeader = headers['Authorization'] || headers['authorization']
-      || headers['X-Auth-Token'] || headers['x-auth-token']
-      || headers['Token'] || headers['token'];
-
-    if (tokenFromHeader) {
-      Logger.log('✅ Token encontrado no header! Tamanho=' + tokenFromHeader.length);
+    // Token está no header "auth_token" (confirmado via DevTools)
+    const token = headers['auth_token'] || headers['AUTH_TOKEN'];
+    if (token) {
+      Logger.log('✅ Token encontrado no header auth_token! Tamanho=' + token.length);
     } else if (rawBody.trim().length > 10) {
       Logger.log('✅ Token no body! Tamanho=' + rawBody.trim().length);
     } else {
-      Logger.log('⚠️ Token ausente no body e nos headers conhecidos. Verifique todos os headers acima.');
+      Logger.log('⚠️ Token não encontrado. Headers disponíveis: ' + Object.keys(headers).join(', '));
     }
   } else {
     Logger.log('❌ Falha no login: ' + rawBody.slice(0, 200));
