@@ -224,22 +224,33 @@ function testarLoginTceSC() {
   });
   const code    = resp.getResponseCode();
   const rawBody = resp.getContentText();
-  Logger.log('  HTTP ' + code + ' | tamanho resposta=' + rawBody.length + ' bytes');
-  Logger.log('  Resposta bruta (primeiros 300 chars): [' + rawBody.slice(0, 300) + ']');
+  Logger.log('  HTTP ' + code + ' | body=' + rawBody.length + ' bytes');
+
+  // Inspeciona TODOS os headers de resposta (token pode estar num header)
+  const headers = resp.getHeaders();
+  Logger.log('  Headers de resposta:');
+  Object.keys(headers).forEach(k => {
+    const v = headers[k];
+    // Oculta apenas valores muito longos que pareçam tokens JWT (evita logar credenciais)
+    const display = (typeof v === 'string' && v.length > 100) ? v.slice(0, 60) + '...[tamanho=' + v.length + ']' : v;
+    Logger.log('    ' + k + ': ' + display);
+  });
+
   if (code === 200) {
-    // Resposta pode ser o token diretamente (string) ou JSON com campo token
-    if (rawBody.trim().startsWith('{') || rawBody.trim().startsWith('[')) {
-      const data  = JSON.parse(rawBody);
-      const token = data.token || data.access_token || data.jwt;
-      Logger.log(token ? '✅ Token obtido (JSON)! Tamanho=' + token.length : '⚠️ JSON sem campo token. Chaves: ' + Object.keys(data).join(', '));
+    // Verifica header Authorization ou X-Auth-Token ou similar
+    const tokenFromHeader = headers['Authorization'] || headers['authorization']
+      || headers['X-Auth-Token'] || headers['x-auth-token']
+      || headers['Token'] || headers['token'];
+
+    if (tokenFromHeader) {
+      Logger.log('✅ Token encontrado no header! Tamanho=' + tokenFromHeader.length);
     } else if (rawBody.trim().length > 10) {
-      // Resposta é o token diretamente como string
-      Logger.log('✅ Token obtido (string direta)! Tamanho=' + rawBody.trim().length);
+      Logger.log('✅ Token no body! Tamanho=' + rawBody.trim().length);
     } else {
-      Logger.log('⚠️ Resposta vazia ou inesperada: [' + rawBody + ']');
+      Logger.log('⚠️ Token ausente no body e nos headers conhecidos. Verifique todos os headers acima.');
     }
   } else {
-    Logger.log('❌ Falha no login. Verifique TCE_SC_LOGIN e TCE_SC_SENHA nas Script Properties.');
+    Logger.log('❌ Falha no login: ' + rawBody.slice(0, 200));
   }
 }
 
