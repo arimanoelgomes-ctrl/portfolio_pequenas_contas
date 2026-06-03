@@ -167,36 +167,33 @@ function onTimeTrigger() {
 
 // ────────────────────────────────────────────────────────────
 // TCE-SC — autenticação via API (retorna Bearer JWT)
-// Script Properties: TCE_SC_LOGIN (matrícula/CPF), TCE_SC_SENHA
+// Endpoint: POST /sgi/rest/token/login
+// Campos:   codigoAcesso (matrícula/CPF) + senha
+// Script Properties: TCE_SC_LOGIN e TCE_SC_SENHA
 // ────────────────────────────────────────────────────────────
 function _getTcescToken() {
-  const props = PropertiesService.getScriptProperties();
-  const login = props.getProperty('TCE_SC_LOGIN') || '';
-  const senha = props.getProperty('TCE_SC_SENHA') || '';
-  if (!login || !senha)
+  const props        = PropertiesService.getScriptProperties();
+  const codigoAcesso = props.getProperty('TCE_SC_LOGIN') || '';
+  const senha        = props.getProperty('TCE_SC_SENHA') || '';
+  if (!codigoAcesso || !senha)
     throw new Error('Script Properties ausentes: configure TCE_SC_LOGIN e TCE_SC_SENHA.');
 
-  // Tenta /auth/login (portal novo) e /sgi/rest/auth/login (legado) como fallback
-  const endpoints = ['/auth/login', '/sgi/rest/auth/login'];
-  for (const endpoint of endpoints) {
-    const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + endpoint, {
-      method: 'post', contentType: 'application/json',
-      payload: JSON.stringify({ login: login, password: senha }),
-      muteHttpExceptions: true
-    });
-    const code = resp.getResponseCode();
-    Logger.log('  TCE-SC login ' + endpoint + ' → HTTP ' + code);
-    if (code === 200) {
-      const data  = JSON.parse(resp.getContentText());
-      const token = data.token || data.access_token || data.jwt;
-      if (token) { Logger.log('  TCE-SC: autenticado com sucesso via ' + endpoint); return token; }
-    }
-    if (code !== 404) {
-      // Endpoint encontrado mas falhou — loga resposta para diagnóstico
-      Logger.log('  TCE-SC: resposta ' + endpoint + ': ' + resp.getContentText().slice(0, 300));
-    }
-  }
-  throw new Error('TCE-SC: falha de autenticação em todos os endpoints. Verifique TCE_SC_LOGIN e TCE_SC_SENHA nas Script Properties.');
+  const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + '/sgi/rest/token/login', {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ codigoAcesso: codigoAcesso, senha: senha }),
+    muteHttpExceptions: true
+  });
+  const code = resp.getResponseCode();
+  if (code !== 200)
+    throw new Error('TCE-SC login HTTP ' + code + ': ' + resp.getContentText().slice(0, 300));
+
+  const data  = JSON.parse(resp.getContentText());
+  const token = data.token || data.access_token || data.jwt;
+  if (!token)
+    throw new Error('TCE-SC: token nao encontrado. Resposta: ' + JSON.stringify(data).slice(0, 300));
+  Logger.log('  TCE-SC: autenticado com sucesso.');
+  return token;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -211,43 +208,22 @@ function testarLoginTceSC() {
   Logger.log('TCE_SC_SENHA configurada: ' + (senha ? 'SIM (tamanho=' + senha.length + ')' : 'NÃO'));
   if (!login || !senha) { Logger.log('❌ Configure as Script Properties antes de testar.'); return; }
 
-  // Headers que simulam o browser (Origin é verificado pela API como medida de segurança)
-  const browserHeaders = {
-    'Origin':  'https://virtual.tce.sc.gov.br',
-    'Referer': 'https://virtual.tce.sc.gov.br/login',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0'
-  };
-
-  // Combinações a testar: [endpoint, contentType, payload, usarBrowserHeaders]
-  const tentativas = [
-    ['/auth/login',          'application/json',                  JSON.stringify({ login: login, password: senha }),   true],
-    ['/auth/login',          'application/json',                  JSON.stringify({ login: login, password: senha }),   false],
-    ['/auth/login',          'application/json',                  JSON.stringify({ username: login, password: senha }), true],
-    ['/auth/login',          'application/json',                  JSON.stringify({ matricula: login, senha: senha }),  true],
-    ['/auth/login',          'application/x-www-form-urlencoded', 'login=' + encodeURIComponent(login) + '&password=' + encodeURIComponent(senha), true],
-    ['/sgi/rest/auth/login', 'application/json',                  JSON.stringify({ login: login, password: senha }),   true],
-    ['/token/login',         'application/json',                  JSON.stringify({ login: login, password: senha }),   true],
-  ];
-
-  for (const [endpoint, ct, payload, comHeaders] of tentativas) {
-    const opts = { method: 'post', contentType: ct, payload: payload, muteHttpExceptions: true };
-    if (comHeaders) opts.headers = browserHeaders;
-    const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + endpoint, opts);
-    const code = resp.getResponseCode();
-    const body = resp.getContentText().slice(0, 150);
-    const hdrs = comHeaders ? '+headers' : 'sem headers';
-    Logger.log('  [' + code + '] ' + endpoint + ' (' + hdrs + ') → ' + body);
-    if (code === 200) {
-      const data  = JSON.parse(resp.getContentText());
-      const token = data.token || data.access_token || data.jwt;
-      if (token) {
-        Logger.log('✅ Token obtido! Endpoint: ' + endpoint + ' | headers: ' + hdrs);
-        return;
-      }
-      Logger.log('⚠️ HTTP 200 mas token ausente: ' + JSON.stringify(data).slice(0, 200));
-    }
+  // Endpoint e campos corretos confirmados via DevTools do browser
+  const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + '/sgi/rest/token/login', {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ codigoAcesso: login, senha: senha }),
+    muteHttpExceptions: true
+  });
+  const code = resp.getResponseCode();
+  Logger.log('  HTTP ' + code + ' → ' + resp.getContentText().slice(0, 200));
+  if (code === 200) {
+    const data  = JSON.parse(resp.getContentText());
+    const token = data.token || data.access_token || data.jwt;
+    Logger.log(token ? '✅ Token obtido com sucesso! Tamanho=' + token.length : '⚠️ HTTP 200 mas token ausente: ' + JSON.stringify(data).slice(0, 200));
+  } else {
+    Logger.log('❌ Falha no login. Verifique TCE_SC_LOGIN e TCE_SC_SENHA nas Script Properties.');
   }
-  Logger.log('❌ Nenhuma combinação funcionou. Verifique os logs acima para identificar o padrão de resposta.');
 }
 
 // ────────────────────────────────────────────────────────────
