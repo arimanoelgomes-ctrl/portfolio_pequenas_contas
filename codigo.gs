@@ -200,8 +200,8 @@ function _getTcescToken() {
 }
 
 // ────────────────────────────────────────────────────────────
-// DIAGNÓSTICO — testa login TCE-SC sem coletar dados
-// Execute esta função diretamente para verificar as credenciais
+// DIAGNÓSTICO — testa várias combinações de login TCE-SC
+// Execute esta função para identificar o formato correto
 // ────────────────────────────────────────────────────────────
 function testarLoginTceSC() {
   const props = PropertiesService.getScriptProperties();
@@ -210,12 +210,36 @@ function testarLoginTceSC() {
   Logger.log('TCE_SC_LOGIN configurado: ' + (login ? 'SIM (tamanho=' + login.length + ')' : 'NÃO'));
   Logger.log('TCE_SC_SENHA configurada: ' + (senha ? 'SIM (tamanho=' + senha.length + ')' : 'NÃO'));
   if (!login || !senha) { Logger.log('❌ Configure as Script Properties antes de testar.'); return; }
-  try {
-    const token = _getTcescToken();
-    Logger.log('✅ Login TCE-SC bem-sucedido! Token obtido (tamanho=' + token.length + ')');
-  } catch(e) {
-    Logger.log('❌ ' + e.message);
+
+  // Combinações a testar: [endpoint, contentType, payload]
+  const tentativas = [
+    // JSON com login/password
+    ['/auth/login',           'application/json',                  JSON.stringify({ login: login, password: senha })],
+    // JSON com username/password
+    ['/auth/login',           'application/json',                  JSON.stringify({ username: login, password: senha })],
+    // JSON com matricula/senha
+    ['/auth/login',           'application/json',                  JSON.stringify({ matricula: login, senha: senha })],
+    // Form-encoded com login/password
+    ['/auth/login',           'application/x-www-form-urlencoded', 'login=' + encodeURIComponent(login) + '&password=' + encodeURIComponent(senha)],
+    // Legado /sgi/rest com login/password JSON
+    ['/sgi/rest/auth/login',  'application/json',                  JSON.stringify({ login: login, password: senha })],
+  ];
+
+  for (const [endpoint, ct, payload] of tentativas) {
+    const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + endpoint, {
+      method: 'post', contentType: ct, payload: payload, muteHttpExceptions: true
+    });
+    const code = resp.getResponseCode();
+    const body = resp.getContentText().slice(0, 150);
+    Logger.log('  [' + code + '] ' + endpoint + ' (' + ct.split('/')[1] + ') → ' + body);
+    if (code === 200) {
+      const data  = JSON.parse(resp.getContentText());
+      const token = data.token || data.access_token || data.jwt;
+      Logger.log(token ? '✅ Token obtido! Formato que funcionou: ' + endpoint + ' / ' + ct : '⚠️ HTTP 200 mas token ausente: ' + JSON.stringify(data).slice(0,200));
+      return;
+    }
   }
+  Logger.log('❌ Nenhuma combinação funcionou. Verifique as credenciais no portal virtual.tce.sc.gov.br manualmente.');
 }
 
 // ────────────────────────────────────────────────────────────
