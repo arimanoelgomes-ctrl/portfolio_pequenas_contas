@@ -176,20 +176,46 @@ function _getTcescToken() {
   if (!login || !senha)
     throw new Error('Script Properties ausentes: configure TCE_SC_LOGIN e TCE_SC_SENHA.');
 
-  const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + '/auth/login', {
-    method: 'post', contentType: 'application/json',
-    payload: JSON.stringify({ login: login, password: senha }),
-    muteHttpExceptions: true
-  });
-  if (resp.getResponseCode() !== 200)
-    throw new Error('TCE-SC login HTTP ' + resp.getResponseCode() + ': ' + resp.getContentText().slice(0, 300));
+  // Tenta /auth/login (portal novo) e /sgi/rest/auth/login (legado) como fallback
+  const endpoints = ['/auth/login', '/sgi/rest/auth/login'];
+  for (const endpoint of endpoints) {
+    const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + endpoint, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify({ login: login, password: senha }),
+      muteHttpExceptions: true
+    });
+    const code = resp.getResponseCode();
+    Logger.log('  TCE-SC login ' + endpoint + ' → HTTP ' + code);
+    if (code === 200) {
+      const data  = JSON.parse(resp.getContentText());
+      const token = data.token || data.access_token || data.jwt;
+      if (token) { Logger.log('  TCE-SC: autenticado com sucesso via ' + endpoint); return token; }
+    }
+    if (code !== 404) {
+      // Endpoint encontrado mas falhou — loga resposta para diagnóstico
+      Logger.log('  TCE-SC: resposta ' + endpoint + ': ' + resp.getContentText().slice(0, 300));
+    }
+  }
+  throw new Error('TCE-SC: falha de autenticação em todos os endpoints. Verifique TCE_SC_LOGIN e TCE_SC_SENHA nas Script Properties.');
+}
 
-  const data  = JSON.parse(resp.getContentText());
-  const token = data.token || data.access_token || data.jwt;
-  if (!token)
-    throw new Error('TCE-SC: token nao encontrado. Resposta: ' + JSON.stringify(data).slice(0, 300));
-  Logger.log('  TCE-SC: autenticado com sucesso.');
-  return token;
+// ────────────────────────────────────────────────────────────
+// DIAGNÓSTICO — testa login TCE-SC sem coletar dados
+// Execute esta função diretamente para verificar as credenciais
+// ────────────────────────────────────────────────────────────
+function testarLoginTceSC() {
+  const props = PropertiesService.getScriptProperties();
+  const login = props.getProperty('TCE_SC_LOGIN') || '';
+  const senha = props.getProperty('TCE_SC_SENHA') || '';
+  Logger.log('TCE_SC_LOGIN configurado: ' + (login ? 'SIM (tamanho=' + login.length + ')' : 'NÃO'));
+  Logger.log('TCE_SC_SENHA configurada: ' + (senha ? 'SIM (tamanho=' + senha.length + ')' : 'NÃO'));
+  if (!login || !senha) { Logger.log('❌ Configure as Script Properties antes de testar.'); return; }
+  try {
+    const token = _getTcescToken();
+    Logger.log('✅ Login TCE-SC bem-sucedido! Token obtido (tamanho=' + token.length + ')');
+  } catch(e) {
+    Logger.log('❌ ' + e.message);
+  }
 }
 
 // ────────────────────────────────────────────────────────────
