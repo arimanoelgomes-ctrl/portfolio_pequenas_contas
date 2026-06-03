@@ -184,14 +184,21 @@ function _getTcescToken() {
     payload: JSON.stringify({ codigoAcesso: codigoAcesso, senha: senha }),
     muteHttpExceptions: true
   });
-  const code = resp.getResponseCode();
+  const code    = resp.getResponseCode();
+  const rawBody = resp.getContentText();
   if (code !== 200)
-    throw new Error('TCE-SC login HTTP ' + code + ': ' + resp.getContentText().slice(0, 300));
+    throw new Error('TCE-SC login HTTP ' + code + ': ' + rawBody.slice(0, 300));
 
-  const data  = JSON.parse(resp.getContentText());
-  const token = data.token || data.access_token || data.jwt;
+  // Resposta pode ser: token como string direta, ou JSON com campo token/access_token/jwt
+  let token;
+  if (rawBody.trim().startsWith('{') || rawBody.trim().startsWith('[')) {
+    const data = JSON.parse(rawBody);
+    token = data.token || data.access_token || data.jwt;
+  } else {
+    token = rawBody.trim(); // token como string pura
+  }
   if (!token)
-    throw new Error('TCE-SC: token nao encontrado. Resposta: ' + JSON.stringify(data).slice(0, 300));
+    throw new Error('TCE-SC: token nao encontrado. Resposta: ' + rawBody.slice(0, 300));
   Logger.log('  TCE-SC: autenticado com sucesso.');
   return token;
 }
@@ -215,12 +222,22 @@ function testarLoginTceSC() {
     payload: JSON.stringify({ codigoAcesso: login, senha: senha }),
     muteHttpExceptions: true
   });
-  const code = resp.getResponseCode();
-  Logger.log('  HTTP ' + code + ' → ' + resp.getContentText().slice(0, 200));
+  const code    = resp.getResponseCode();
+  const rawBody = resp.getContentText();
+  Logger.log('  HTTP ' + code + ' | tamanho resposta=' + rawBody.length + ' bytes');
+  Logger.log('  Resposta bruta (primeiros 300 chars): [' + rawBody.slice(0, 300) + ']');
   if (code === 200) {
-    const data  = JSON.parse(resp.getContentText());
-    const token = data.token || data.access_token || data.jwt;
-    Logger.log(token ? '✅ Token obtido com sucesso! Tamanho=' + token.length : '⚠️ HTTP 200 mas token ausente: ' + JSON.stringify(data).slice(0, 200));
+    // Resposta pode ser o token diretamente (string) ou JSON com campo token
+    if (rawBody.trim().startsWith('{') || rawBody.trim().startsWith('[')) {
+      const data  = JSON.parse(rawBody);
+      const token = data.token || data.access_token || data.jwt;
+      Logger.log(token ? '✅ Token obtido (JSON)! Tamanho=' + token.length : '⚠️ JSON sem campo token. Chaves: ' + Object.keys(data).join(', '));
+    } else if (rawBody.trim().length > 10) {
+      // Resposta é o token diretamente como string
+      Logger.log('✅ Token obtido (string direta)! Tamanho=' + rawBody.trim().length);
+    } else {
+      Logger.log('⚠️ Resposta vazia ou inesperada: [' + rawBody + ']');
+    }
   } else {
     Logger.log('❌ Falha no login. Verifique TCE_SC_LOGIN e TCE_SC_SENHA nas Script Properties.');
   }
