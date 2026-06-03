@@ -50,12 +50,26 @@ seguras desde que o Apps Script e o `index.html` sejam atualizados juntos.
 
 ## Stack do projeto
 
-- **Backend**: Google Apps Script (`codigo.gs`) — Web App JSONP + coleta Jira
+- **Backend**: Google Apps Script (`codigo.gs`) — Web App JSONP + coleta Jira + CND TCE-SC
 - **Frontend**: HTML/JS single-file (`index.html`) hospedado no GitHub Pages
   ou servido via Apps Script
 - **Dados**: Google Sheets (`SHEET_ID = 1MKsApbL7IPf5jAsAO9N03AxAcC3ptzYbrgNQrOr_R4s`)
 - **Fonte de issues**: Jira REST API v2, autenticado por session cookie
 - **SLO field**: `customfield_24813`
+- **CND Estadual/Municípios**: TCE-SC Virtual API (`api.virtual.tce.sc.gov.br`)
+  - Endpoint: `GET /api-gateway/ms-eventos-certidao/visualizador/getCertidaoPorAno/0`
+  - Auth: `POST /auth/login` com `{login, password}` → JWT Bearer
+
+## Script Properties (Apps Script → Configurações → Propriedades do script)
+
+| Chave | Descrição |
+|---|---|
+| `JIRA_BASE_URL` | `https://atendimento.betha.com.br` |
+| `JIRA_EMAIL` | e-mail do usuário Jira |
+| `JIRA_API_TOKEN` | token em id.atlassian.com/manage/api-tokens |
+| `SHEET_ID` | ID da planilha Google Sheets de destino |
+| `TCE_SC_LOGIN` | Matrícula ou CPF de acesso ao TCE Virtual SC |
+| `TCE_SC_SENHA` | Senha de acesso ao TCE Virtual SC |
 
 ## Fluxo de deploy
 

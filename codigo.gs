@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // PORTFÓLIO PEQUENAS CONTAS — Apps Script (Web App + Coleta Jira)
 // Versão: 2.0 | Data: 09/04/2026
 // ============================================================
@@ -118,12 +118,16 @@ const SUPORTE_ISSUES_TAB_NAME   = 'Jira_Chamados_Suporte_Issues';
 const IMPL_TAB_NAME         = 'Jira_Implantacoes';
 const IMPL_ISSUES_TAB_NAME  = 'Jira_Implantacoes_Issues';
 const CND_TAB_NAME    = 'CND_Municipios';
-const CND_SHEET_ID             = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
-// CND Federal (SICONFI) e Estadual (e-Sfinge SC) — planilhas mantidas pelo governo
+// TCE-SC Virtual API — substituiu leitura das planilhas e-Sfinge / CND externas
+// Script Properties necessárias: TCE_SC_LOGIN (matrícula/CPF) e TCE_SC_SENHA
+const TCE_SC_API_BASE = 'https://api.virtual.tce.sc.gov.br';
+// CND Federal (SICONFI) — planilha mantida pelo governo (ainda usada)
 const SICONFI_SHEET_ID  = '1vrRNrQoKhFllqH8OIxQveeUFt-LUbdw1hsBwrh5OAI4';
 const SICONFI_GID       = 1585345281;
-const ESFINGE_SHEET_ID  = '1hRXUjAvwJKhTecn0SYDT2n5_EomjNexStlmNfKOcVvs';
-const ESFINGE_GID       = 1585345281;
+// Planilhas e-Sfinge/CND externas mantidas como referência (não mais consultadas):
+// const CND_SHEET_ID    = '16axvbTygJCmXY2zT2FL3a5BYDNrUz-tIwTTrifkwwcQ';
+// const ESFINGE_SHEET_ID= '1hRXUjAvwJKhTecn0SYDT2n5_EomjNexStlmNfKOcVvs';
+// const ESFINGE_GID     = 1585345281;
 const CND_FEDERAL_TAB   = 'CND_Federal';
 const CND_ESTADUAL_TAB  = 'CND_Estadual';
 const NPS_TAB_NAME             = 'NPS_Calculado';
@@ -162,70 +166,93 @@ function onTimeTrigger() {
 }
 
 // ────────────────────────────────────────────────────────────
-// CND — busca dados do endpoint CND e salva na planilha
-// Roda server-side com auth do proprietário do script
+// TCE-SC — autenticação via API (retorna Bearer JWT)
+// Script Properties: TCE_SC_LOGIN (matrícula/CPF), TCE_SC_SENHA
+// ────────────────────────────────────────────────────────────
+function _getTcescToken() {
+  const props = PropertiesService.getScriptProperties();
+  const login = props.getProperty('TCE_SC_LOGIN') || '';
+  const senha = props.getProperty('TCE_SC_SENHA') || '';
+  if (!login || !senha)
+    throw new Error('Script Properties ausentes: configure TCE_SC_LOGIN e TCE_SC_SENHA.');
+
+  const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + '/auth/login', {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify({ login: login, password: senha }),
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() !== 200)
+    throw new Error('TCE-SC login HTTP ' + resp.getResponseCode() + ': ' + resp.getContentText().slice(0, 300));
+
+  const data  = JSON.parse(resp.getContentText());
+  const token = data.token || data.access_token || data.jwt;
+  if (!token)
+    throw new Error('TCE-SC: token nao encontrado. Resposta: ' + JSON.stringify(data).slice(0, 300));
+  Logger.log('  TCE-SC: autenticado com sucesso.');
+  return token;
+}
+
+// ────────────────────────────────────────────────────────────
+// TCE-SC — busca certidoes de todos os entes e filtra portfolio
+// ────────────────────────────────────────────────────────────
+function _fetchTcescCertidoes(token) {
+  const resp = UrlFetchApp.fetch(
+    TCE_SC_API_BASE + '/api-gateway/ms-eventos-certidao/visualizador/getCertidaoPorAno/0',
+    { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }, muteHttpExceptions: true }
+  );
+  if (resp.getResponseCode() !== 200)
+    throw new Error('TCE-SC certidoes HTTP ' + resp.getResponseCode() + ': ' + resp.getContentText().slice(0, 300));
+  const all = JSON.parse(resp.getContentText());
+  Logger.log('  TCE-SC: ' + all.length + ' entes retornados pela API.');
+
+  // Filtra apenas municipios do portfolio (normaliza sem acento)
+  const normStr = (s) => (s || '').toString().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, '').trim();
+  const munSet = new Set(_MUN_LIST.split(',').map(m => normStr(m.replace(/'/g, '').trim())));
+  const filtrados = all.filter(e => munSet.has(normStr(e.nome)));
+  Logger.log('  TCE-SC: ' + filtrados.length + ' municipios do portfolio identificados.');
+  return filtrados;
+}
+
+// ────────────────────────────────────────────────────────────
+// CND_Municipios — alimentado pela API TCE-SC (substituiu CND_SHEET_ID)
+// Schema: municipio, portfolio, periodo1, periodo2, periodo3, atualizado_em
+// periodo = "LRF:{val}|SEF:{val}|OCI:{val}" — retrocompativel com _Hist
 // ────────────────────────────────────────────────────────────
 function fetchAndStoreCND() {
-  Logger.log('  Buscando dados CND da planilha...');
-  const ssCND  = SpreadsheetApp.openById(CND_SHEET_ID);
-  const tabCND = ssCND.getSheets()[0]; // primeira aba
-  const values = tabCND.getDataRange().getValues();
-
-  if (values.length < 2) { Logger.log('  CND: planilha vazia'); return; }
-
-  const headers = values[0];
-
-  // Detectar colunas por nome (busca parcial, case-insensitive)
-  const col = (termo) => headers.findIndex(h =>
-    h.toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(termo));
-
-  const iMun  = col('munic');
-  const iPort = col('portf');
-  const iP1   = headers.findIndex(h => /per[^\d]*1/i.test(h));
-  const iP2   = headers.findIndex(h => /per[^\d]*2/i.test(h));
-  const iP3   = headers.findIndex(h => /per[^\d]*3/i.test(h));
-
-  Logger.log(`  Colunas detectadas — Município:${iMun} Portfólio:${iPort} P1:${iP1} P2:${iP2} P3:${iP3}`);
-
-  const filtrados = values.slice(1).filter(row => {
-    const port = iPort >= 0 ? (row[iPort] || '').toString().toLowerCase() : '';
-    return port.includes('pequenas') && row[iMun];
-  });
-  Logger.log(`  CND: ${filtrados.length} registros de Pequenas Contas`);
+  Logger.log('  Buscando CND Municipios (TCE-SC API)...');
+  const token = _getTcescToken();
+  const entes = _fetchTcescCertidoes(token);
+  const periodoStr = (lrf, sef, oci) =>
+    'LRF:' + (lrf || 'ausente') + '|SEF:' + (sef || 'ausente') + '|OCI:' + (oci || 'ausente');
 
   const ts = new Date().toISOString();
-  const writeRows = filtrados.map(row => [
-    row[iMun]  || '',
-    iPort >= 0 ? (row[iPort] || '') : '',
-    iP1   >= 0 ? (row[iP1]  || '') : '',
-    iP2   >= 0 ? (row[iP2]  || '') : '',
-    iP3   >= 0 ? (row[iP3]  || '') : '',
-    ts,
+  const writeRows = entes.map(e => [
+    e.nome || '', 'Pequenas Contas',
+    periodoStr(e.q1Lrf, e.q1Sef, e.q1Oci),
+    periodoStr(e.q2Lrf, e.q2Sef, e.q2Oci),
+    periodoStr(e.q3Lrf, e.q3Sef, e.q3Oci), ts
   ]);
 
   const props   = PropertiesService.getScriptProperties();
   const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
   const ss      = SpreadsheetApp.openById(sheetId);
-  let tab       = ss.getSheetByName(CND_TAB_NAME);
-  if (!tab) { tab = ss.insertSheet(CND_TAB_NAME); }
+  let tab = ss.getSheetByName(CND_TAB_NAME);
+  if (!tab) tab = ss.insertSheet(CND_TAB_NAME);
 
   tab.getRange(1, 1, 1, 6).setValues([['municipio','portfolio','periodo1','periodo2','periodo3','atualizado_em']]);
   if (tab.getLastRow() > 1) tab.getRange(2, 1, tab.getLastRow() - 1, 6).clearContent();
   if (writeRows.length > 0) tab.getRange(2, 1, writeRows.length, 6).setValues(writeRows);
-
   const h = tab.getRange(1, 1, 1, 6);
   h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
   tab.setFrozenRows(1);
-  Logger.log(`  CND_Municipios: ${writeRows.length} linhas gravadas`);
+  Logger.log('  CND_Municipios: ' + writeRows.length + ' linhas gravadas.');
 
-  // Histórico diário
-  const dateStrCND = new Date().toISOString().slice(0, 10);
+  const dateStr = new Date().toISOString().slice(0, 10);
   appendToHistory(ss, CND_TAB_NAME + '_Hist',
-    ['municipio', 'portfolio', 'periodo1', 'periodo2', 'periodo3', 'atualizado_em'],
-    writeRows, 5, dateStrCND);
+    ['municipio','portfolio','periodo1','periodo2','periodo3','atualizado_em'], writeRows, 5, dateStr);
 }
 
-// ────────────────────────────────────────────────────────────
 // Helpers compartilhados por CND Federal/Estadual
 // ────────────────────────────────────────────────────────────
 function _normStr(s) {
@@ -373,81 +400,55 @@ function fetchAndStoreCNDFederal() {
 }
 
 // ────────────────────────────────────────────────────────────
-// CND ESTADUAL (e-Sfinge SC) — 3 certidões quadrimestrais (Sim/Não)
-// Cabeçalhos estão na linha 3. Colunas "Certidão ..." usadas como P1/P2/P3.
-// Grava CND_Estadual: municipio, entidade, meses_atraso, tipo_atraso,
-//   periodo1, periodo2, periodo3, p1_label, p2_label, p3_label, atualizado_em
+// CND_Estadual — alimentado pela API TCE-SC (substituiu e-Sfinge GSheet)
+// Schema: municipio, entidade, meses_atraso, tipo_atraso, status_fonte,
+//         periodo1, periodo2, periodo3, p1_label, p2_label, p3_label, atualizado_em
+// periodo = "LRF:{val}|SEF:{val}|OCI:{val}" — retrocompativel com _Hist
 // ────────────────────────────────────────────────────────────
 function fetchAndStoreCNDEstadual() {
-  Logger.log('  Buscando CND Estadual (e-Sfinge SC)...');
-  const values = _readSheetByGid(ESFINGE_SHEET_ID, ESFINGE_GID);
-  if (values.length < 4) { Logger.log('  e-Sfinge: sem dados'); return; }
+  Logger.log('  Buscando CND Estadual (TCE-SC API)...');
+  const token = _getTcescToken();
+  const entes = _fetchTcescCertidoes(token);
+  if (!entes.length) { Logger.log('  CND Estadual: nenhum ente do portfolio encontrado.'); return; }
 
-  const headerRow = values[2];
-  const idx = (name) => headerRow.findIndex(h => _normStr(h) === _normStr(name));
-  const iPrest = idx('Prestador');
-  const iCanal = idx('Canal');
-  const iMun   = idx('Municipio');
-  const iEnt   = idx('Entidade');
-  const iMesesAtraso = idx('Meses em atraso');
-  const iTipoAtraso  = idx('Tipo atraso');
-
-  // Detecta as 3 colunas "Certidão ..." dinamicamente, preservando o texto do rótulo
-  const certIdx = [];
-  const certLabels = [];
-  headerRow.forEach((h, i) => {
-    const s = h ? h.toString().trim() : '';
-    if (/^Certid[ãa]o\s/i.test(s)) {
-      certIdx.push(i);
-      certLabels.push(s.replace(/^Certid[ãa]o\s+/i, '').trim());
-    }
-  });
-  Logger.log('  e-Sfinge: certidões detectadas = ' + certLabels.join(' | '));
-
-  if (iPrest < 0 || iCanal < 0 || iMun < 0 || certIdx.length < 3) {
-    Logger.log('  e-Sfinge: cabeçalhos obrigatórios ausentes (certIdx=' + certIdx.length + ')');
-    return;
-  }
-
-  // Filtra: Betha + Pequenas Contas + município do portfólio + apenas Prefeitura
-  const filtrados = values.slice(3).filter(r => {
-    if (!_isPequenasContasBetha(r, iPrest, iCanal)) return false;
-    if (!r[iMun] || !_isMunicipioPortfolio(r[iMun])) return false;
-    // Apenas entidades do tipo Prefeitura
-    const ent = iEnt >= 0 ? _normStr(r[iEnt]) : '';
-    return ent.indexOf('prefeitura') >= 0;
-  });
-  Logger.log('  e-Sfinge: ' + filtrados.length + ' linhas após filtro (Betha + Pequenas + portfólio + Prefeitura)');
-
-  const normCert = (v) => {
-    const s = _normStr(v);
-    if (s === 'sim') return 'Com CND';
-    if (s === 'nao') return 'Sem CND';
-    return '';
+  // Helper: ISO date -> dd/MM/yyyy
+  const fmtDt = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
   };
+
+  // Labels de periodo a partir das datas do primeiro ente (iguais para todos)
+  const ref     = entes[0];
+  const p1label = fmtDt(ref.data4) + ' a ' + fmtDt(ref.data3);
+  const p2label = fmtDt(ref.data3) + ' a ' + fmtDt(ref.data2);
+  const p3label = fmtDt(ref.data2) + ' a ' + fmtDt(ref.data1);
+
+  const periodoStr = (lrf, sef, oci) =>
+    'LRF:' + (lrf || 'ausente') + '|SEF:' + (sef || 'ausente') + '|OCI:' + (oci || 'ausente');
 
   const nowIso  = new Date().toISOString();
   const dateStr = nowIso.slice(0, 10);
-  const statusFonte = _extractStatusFonte(values);
-  Logger.log('  e-Sfinge: status fonte (A1) = ' + statusFonte);
 
-  const writeRows = filtrados.map(r => [
-    _titleCaseMun(r[iMun]),
-    iEnt >= 0 ? _titleCaseMun(r[iEnt]) : '',
-    iMesesAtraso >= 0 ? String(r[iMesesAtraso] || '').trim() : '',
-    iTipoAtraso  >= 0 ? String(r[iTipoAtraso]  || '').trim() : '',
-    statusFonte,
-    normCert(r[certIdx[0]]),
-    normCert(r[certIdx[1]]),
-    normCert(r[certIdx[2]]),
-    certLabels[0] || '',
-    certLabels[1] || '',
-    certLabels[2] || '',
-    nowIso,
-  ]);
-
-  const headers = ['municipio','entidade','meses_atraso','tipo_atraso','status_fonte','periodo1','periodo2','periodo3','p1_label','p2_label','p3_label','atualizado_em'];
+  // Schema identico ao historico: 12 colunas
+  const headers = ['municipio','entidade','meses_atraso','tipo_atraso','status_fonte',
+                   'periodo1','periodo2','periodo3','p1_label','p2_label','p3_label','atualizado_em'];
   const W = headers.length;
+
+  const writeRows = entes.map(e => [
+    e.nome || '',   // municipio
+    e.nome || '',   // entidade (mesma — API nao separa por orgao)
+    '',             // meses_atraso — nao disponivel na API
+    '',             // tipo_atraso  — nao disponivel na API
+    'TCE-SC API',   // status_fonte
+    periodoStr(e.q1Lrf, e.q1Sef, e.q1Oci),
+    periodoStr(e.q2Lrf, e.q2Sef, e.q2Oci),
+    periodoStr(e.q3Lrf, e.q3Sef, e.q3Oci),
+    p1label, p2label, p3label,
+    nowIso
+  ]);
 
   const props   = PropertiesService.getScriptProperties();
   const sheetId = props.getProperty('SHEET_ID') || SHEET_ID_DEFAULT;
@@ -458,11 +459,10 @@ function fetchAndStoreCNDEstadual() {
   tab.getRange(1, 1, 1, W).setValues([headers]);
   if (tab.getLastRow() > 1) tab.getRange(2, 1, tab.getLastRow() - 1, W).clearContent();
   if (writeRows.length > 0) tab.getRange(2, 1, writeRows.length, W).setValues(writeRows);
-
   const h = tab.getRange(1, 1, 1, W);
   h.setBackground('#1E3A5F'); h.setFontColor('#FFFFFF'); h.setFontWeight('bold');
   tab.setFrozenRows(1);
-  Logger.log('  CND_Estadual: ' + writeRows.length + ' linhas gravadas');
+  Logger.log('  CND_Estadual: ' + writeRows.length + ' linhas gravadas.');
 
   appendToHistory(ss, CND_ESTADUAL_TAB + '_Hist', headers, writeRows, W - 1, dateStr);
 }
