@@ -211,35 +211,43 @@ function testarLoginTceSC() {
   Logger.log('TCE_SC_SENHA configurada: ' + (senha ? 'SIM (tamanho=' + senha.length + ')' : 'NÃO'));
   if (!login || !senha) { Logger.log('❌ Configure as Script Properties antes de testar.'); return; }
 
-  // Combinações a testar: [endpoint, contentType, payload]
+  // Headers que simulam o browser (Origin é verificado pela API como medida de segurança)
+  const browserHeaders = {
+    'Origin':  'https://virtual.tce.sc.gov.br',
+    'Referer': 'https://virtual.tce.sc.gov.br/login',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0'
+  };
+
+  // Combinações a testar: [endpoint, contentType, payload, usarBrowserHeaders]
   const tentativas = [
-    // JSON com login/password
-    ['/auth/login',           'application/json',                  JSON.stringify({ login: login, password: senha })],
-    // JSON com username/password
-    ['/auth/login',           'application/json',                  JSON.stringify({ username: login, password: senha })],
-    // JSON com matricula/senha
-    ['/auth/login',           'application/json',                  JSON.stringify({ matricula: login, senha: senha })],
-    // Form-encoded com login/password
-    ['/auth/login',           'application/x-www-form-urlencoded', 'login=' + encodeURIComponent(login) + '&password=' + encodeURIComponent(senha)],
-    // Legado /sgi/rest com login/password JSON
-    ['/sgi/rest/auth/login',  'application/json',                  JSON.stringify({ login: login, password: senha })],
+    ['/auth/login',          'application/json',                  JSON.stringify({ login: login, password: senha }),   true],
+    ['/auth/login',          'application/json',                  JSON.stringify({ login: login, password: senha }),   false],
+    ['/auth/login',          'application/json',                  JSON.stringify({ username: login, password: senha }), true],
+    ['/auth/login',          'application/json',                  JSON.stringify({ matricula: login, senha: senha }),  true],
+    ['/auth/login',          'application/x-www-form-urlencoded', 'login=' + encodeURIComponent(login) + '&password=' + encodeURIComponent(senha), true],
+    ['/sgi/rest/auth/login', 'application/json',                  JSON.stringify({ login: login, password: senha }),   true],
+    ['/token/login',         'application/json',                  JSON.stringify({ login: login, password: senha }),   true],
   ];
 
-  for (const [endpoint, ct, payload] of tentativas) {
-    const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + endpoint, {
-      method: 'post', contentType: ct, payload: payload, muteHttpExceptions: true
-    });
+  for (const [endpoint, ct, payload, comHeaders] of tentativas) {
+    const opts = { method: 'post', contentType: ct, payload: payload, muteHttpExceptions: true };
+    if (comHeaders) opts.headers = browserHeaders;
+    const resp = UrlFetchApp.fetch(TCE_SC_API_BASE + endpoint, opts);
     const code = resp.getResponseCode();
     const body = resp.getContentText().slice(0, 150);
-    Logger.log('  [' + code + '] ' + endpoint + ' (' + ct.split('/')[1] + ') → ' + body);
+    const hdrs = comHeaders ? '+headers' : 'sem headers';
+    Logger.log('  [' + code + '] ' + endpoint + ' (' + hdrs + ') → ' + body);
     if (code === 200) {
       const data  = JSON.parse(resp.getContentText());
       const token = data.token || data.access_token || data.jwt;
-      Logger.log(token ? '✅ Token obtido! Formato que funcionou: ' + endpoint + ' / ' + ct : '⚠️ HTTP 200 mas token ausente: ' + JSON.stringify(data).slice(0,200));
-      return;
+      if (token) {
+        Logger.log('✅ Token obtido! Endpoint: ' + endpoint + ' | headers: ' + hdrs);
+        return;
+      }
+      Logger.log('⚠️ HTTP 200 mas token ausente: ' + JSON.stringify(data).slice(0, 200));
     }
   }
-  Logger.log('❌ Nenhuma combinação funcionou. Verifique as credenciais no portal virtual.tce.sc.gov.br manualmente.');
+  Logger.log('❌ Nenhuma combinação funcionou. Verifique os logs acima para identificar o padrão de resposta.');
 }
 
 // ────────────────────────────────────────────────────────────
