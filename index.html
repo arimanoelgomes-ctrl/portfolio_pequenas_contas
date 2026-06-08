@@ -472,7 +472,7 @@
       <div class="kpi-value" id="kpi-cnd-est">—</div>
       <div class="kpi-sub" id="kpi-cnd-est-sub">Carregando…</div>
     </div>
-    <div class="kpi-card green">
+    <div class="kpi-card green" id="kpi-cnd-fed-card" style="display:none">
       <div class="kpi-label">CND Federal</div>
       <div class="kpi-value" id="kpi-cnd-fed">—</div>
       <div class="kpi-sub" id="kpi-cnd-fed-sub">Carregando…</div>
@@ -585,16 +585,16 @@
     <!-- View: CND (pos 4) -->
     <div class="view" id="view-2">
       <div class="view-title">Situação CND do Portfólio</div>
-      <div class="view-subtitle">Certidões Negativas de Débito por esfera • Fonte: e-Sfinge (SC) e SICONFI (Federal)</div>
+      <div class="view-subtitle">Certidões Negativas de Débito • Fonte: TCE-SC Virtual (e-Sfinge SC)</div>
 
-      <!-- Sub-abas Estadual / Federal -->
+      <!-- Sub-abas Estadual / Federal (Federal oculto aguardando revisão) -->
       <div style="display:flex;gap:8px;margin:12px 0 16px;border-bottom:2px solid #E2E8F0">
         <button id="cnd-sub-estadual" class="cnd-sub-btn cnd-sub-active" onclick="switchCNDSubTab('estadual')"
           style="padding:8px 18px;background:none;border:none;border-bottom:3px solid var(--accent);font-weight:700;font-size:.9rem;color:var(--accent);cursor:pointer;margin-bottom:-2px;transition:color .2s,border-color .2s">
           🏛️ Estadual (SC)
         </button>
         <button id="cnd-sub-federal" class="cnd-sub-btn" onclick="switchCNDSubTab('federal')"
-          style="padding:8px 18px;background:none;border:none;border-bottom:3px solid transparent;font-weight:700;font-size:.9rem;color:var(--text-muted);cursor:pointer;margin-bottom:-2px;transition:color .2s,border-color .2s">
+          style="display:none;padding:8px 18px;background:none;border:none;border-bottom:3px solid transparent;font-weight:700;font-size:.9rem;color:var(--text-muted);cursor:pointer;margin-bottom:-2px;transition:color .2s,border-color .2s">
           🇧🇷 Federal
         </button>
       </div>
@@ -1946,7 +1946,7 @@ function toggleCndGroup(grpId) {
   if (arrow) arrow.style.transform = visible ? 'rotate(0deg)' : 'rotate(90deg)';
 }
 
-// ─── Estadual (e-Sfinge SC): somente período atual ────────────────
+// ─── Estadual (TCE-SC): período anterior + período atual ─────────
 function renderCNDEstadual() {
   const donutsDiv = document.getElementById('cnd-estadual-donuts');
   const tableDiv  = document.getElementById('cnd-estadual-table');
@@ -1958,7 +1958,6 @@ function renderCNDEstadual() {
     return;
   }
 
-  // Detectar o período atual: último período cujo início já passou
   const labels = [
     { key: 'periodo1', label: state.cndEstadual[0].p1_label || 'Período 1' },
     { key: 'periodo2', label: state.cndEstadual[0].p2_label || 'Período 2' },
@@ -1970,29 +1969,20 @@ function renderCNDEstadual() {
     const yy = m[3].length === 2 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
     return new Date(yy, parseInt(m[2]) - 1, parseInt(m[1]));
   };
+
+  // Detectar o período cronologicamente atual
   const hoje = new Date();
   let curIdx = 0;
-  labels.forEach((p, i) => {
-    const d = parseStartDate(p.label);
-    if (d && d <= hoje) curIdx = i;
-  });
-  // Fallback: se o período atual não tiver dados reais (certidões ainda não submetidas),
-  // recua até o período mais recente que tenha dados (Com CND ou Sem CND).
-  const originalCurIdx = curIdx;
-  while (curIdx > 0) {
-    const key = labels[curIdx].key;
-    const hasData = state.cndEstadual.some(r => r[key] === 'Com CND' || r[key] === 'Sem CND');
-    if (hasData) break;
-    curIdx--;
-  }
-  const isFallbackPeriod = curIdx < originalCurIdx;
-  const curKey   = labels[curIdx].key;
-  const curLabel = labels[curIdx].label;
+  labels.forEach((p, i) => { const d = parseStartDate(p.label); if (d && d <= hoje) curIdx = i; });
+
+  // Período atual (cronológico) e anterior
+  const curPeriod  = labels[curIdx];
+  const prevPeriod = curIdx > 0 ? labels[curIdx - 1] : null;
 
   const statusFonte = state.cndEstadual[0].status_fonte || '';
   renderCNDStatusFonte('cnd-estadual-status', statusFonte, 'e-Sfinge TCE/SC');
 
-  // Agrupar por município (apenas dados reais — filtro Betha+Pequenas feito server-side)
+  // Agrupar por município
   const ordenados = [...state.cndEstadual].sort((a, b) => {
     const mdiff = a.municipio.localeCompare(b.municipio, 'pt-BR');
     if (mdiff !== 0) return mdiff;
@@ -2007,67 +1997,87 @@ function renderCNDEstadual() {
   const munKeys = Object.keys(grupos).sort((a, b) => grupos[a].nome.localeCompare(grupos[b].nome, 'pt-BR'));
   const totalMuns = munKeys.length;
 
-  // Donut — conta apenas municípios presentes nos dados
-  const comMun = munKeys.filter(k => {
-    const items = grupos[k].items;
-    return !items.some(r => r[curKey] === 'Sem CND') && items.some(r => r[curKey] === 'Com CND');
-  }).length;
-  const semMun = totalMuns - comMun;
-
-  const periodTitle = isFallbackPeriod
-    ? `<div style="text-align:center;font-size:.82rem;font-weight:700;color:var(--accent);margin-bottom:2px">Período mais recente com dados</div>
-       <div style="text-align:center;font-size:.7rem;color:#C05621;background:#FEFCBF;border-radius:6px;padding:2px 8px;margin-bottom:4px">⚠️ Período atual sem submissões</div>`
-    : `<div style="text-align:center;font-size:.82rem;font-weight:700;color:var(--accent);margin-bottom:2px">Período Atual</div>`;
-  donutsDiv.innerHTML = `
-    <div style="max-width:220px;margin:0 auto">
-      ${periodTitle}
-      <div style="text-align:center;font-size:.72rem;color:var(--text-muted);margin-bottom:8px">${curLabel}</div>
-      <div class="chart-wrap short"><canvas id="cnd-est-atual"></canvas></div>
-    </div>`;
-  makeCNDDonutGeneric('cnd-est-atual', comMun, semMun, { highlight: true });
-
-  // Badges
-  const badgeMun = v =>
-    v === 'Com CND' ? `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✓ Com CND</span>`
-    : v === 'Sem CND' ? `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✗ Sem CND</span>`
-    : `<span style="color:#A0AEC0;font-size:.78rem">—</span>`;
-
-  const badgeEnt = v =>
-    v === 'Com CND' ? `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">✓ Sem Pendência</span>`
-    : v === 'Sem CND' ? `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:600;white-space:nowrap">✗ Com Pendência</span>`
-    : `<span style="color:#A0AEC0;font-size:.74rem">—</span>`;
-
-  const munStatusVal = (items) => {
-    if (!items.length) return 'Sem CND'; // município sem dados = Sem CND
-    if (items.some(r => r[curKey] === 'Sem CND')) return 'Sem CND';
-    if (items.some(r => r[curKey] === 'Com CND')) return 'Com CND';
-    return 'Sem CND';
+  // Conta municípios Com / Sem CND para um dado período
+  const countPeriod = (key) => {
+    const com = munKeys.filter(k => {
+      const items = grupos[k].items;
+      return !items.some(r => r[key] === 'Sem CND') && items.some(r => r[key] === 'Com CND');
+    }).length;
+    const semOrAusente = munKeys.filter(k => grupos[k].items.some(r => r[key] === 'Sem CND')).length;
+    const hasAnyData = state.cndEstadual.some(r => r[key] === 'Com CND' || r[key] === 'Sem CND');
+    return { com, sem: semOrAusente, total: totalMuns, hasData: hasAnyData };
   };
 
-  // 1 linha por município (somente Prefeitura — filtrado server-side)
+  // ── Donuts ──────────────────────────────────────────────────────
+  const makeDonutBlock = (title, label, key, canvasId, highlight) => {
+    const { com, sem, hasData } = countPeriod(key);
+    const donutEl = hasData
+      ? `<div class="chart-wrap short"><canvas id="${canvasId}"></canvas></div>`
+      : `<div style="height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px">
+           <div style="width:80px;height:80px;border-radius:50%;border:10px solid #E2E8F0;display:flex;align-items:center;justify-content:center">
+             <span style="font-size:.7rem;color:#A0AEC0;font-weight:600;text-align:center">Em<br>andamento</span>
+           </div>
+         </div>`;
+    return { html: `
+      <div style="max-width:220px;margin:0 auto;text-align:center">
+        <div style="font-size:.82rem;font-weight:700;color:var(--accent);margin-bottom:2px">${title}</div>
+        <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:8px">${label}</div>
+        ${donutEl}
+      </div>`, com, sem, hasData };
+  };
+
+  let donutsHTML = '';
+  const donuts = [];
+
+  if (prevPeriod) {
+    const b = makeDonutBlock('Período Anterior', prevPeriod.label, prevPeriod.key, 'cnd-est-prev', false);
+    donuts.push({ id: 'cnd-est-prev', com: b.com, sem: b.sem, hasData: b.hasData, highlight: false });
+    donutsHTML += b.html;
+  }
+  const bCur = makeDonutBlock('Período Atual', curPeriod.label, curPeriod.key, 'cnd-est-cur', true);
+  donuts.push({ id: 'cnd-est-cur', com: bCur.com, sem: bCur.sem, hasData: bCur.hasData, highlight: true });
+  donutsHTML += bCur.html;
+
+  donutsDiv.innerHTML = `<div style="display:flex;justify-content:center;gap:32px;align-items:start;flex-wrap:wrap">${donutsHTML}</div>`;
+  donuts.forEach(d => { if (d.hasData) makeCNDDonutGeneric(d.id, d.com, d.sem, { highlight: d.highlight }); });
+
+  // ── Badges ──────────────────────────────────────────────────────
+  const badgeMun = (v, isCurrentPeriod) => {
+    if (v === 'Com CND') return `<span style="background:#C6F6D5;color:#276749;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✓ Com CND</span>`;
+    if (v === 'Sem CND') return `<span style="background:#FED7D7;color:#C53030;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;white-space:nowrap">✗ Sem CND</span>`;
+    if (isCurrentPeriod) return `<span style="background:#EDF2F7;color:#718096;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:600;white-space:nowrap">Em andamento</span>`;
+    return `<span style="color:#A0AEC0;font-size:.78rem">—</span>`;
+  };
+
+  // ── Tabela com 2 colunas de período ─────────────────────────────
+  const prevCol = prevPeriod
+    ? `<th style="padding:10px 12px;font-size:.73rem;white-space:nowrap">Anterior<br><span style="font-weight:400;font-size:.68rem">${prevPeriod.label}</span></th>`
+    : '';
   const rows = munKeys.map((k, gi) => {
     const { nome: mun, items } = grupos[k];
     const bg = gi % 2 === 0 ? '#fff' : '#F8FAFC';
     const r = items[0];
+    const prevCell = prevPeriod
+      ? `<td style="padding:8px 12px;text-align:center">${badgeMun(r[prevPeriod.key], false)}</td>`
+      : '';
     return `<tr style="background:${bg}">
       <td style="padding:8px 12px;font-size:.82rem;font-weight:600">${mun}</td>
-      <td style="padding:8px 12px;text-align:center">${badgeMun(r[curKey])}</td>
+      ${prevCell}
+      <td style="padding:8px 12px;text-align:center">${badgeMun(r[curPeriod.key], true)}</td>
     </tr>`;
   }).join('');
 
-  const fallbackNote = isFallbackPeriod
-    ? `<span style="font-size:.73rem;font-weight:400;color:#C05621;background:#FEFCBF;border-radius:4px;padding:1px 6px;margin-left:8px;text-transform:none;letter-spacing:0">⚠️ certidões do período atual ainda não foram submetidas</span>`
-    : '';
   tableDiv.innerHTML = `
     <h4 style="font-size:.85rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">
-      Situação CND Estadual — ${curLabel}${fallbackNote}
+      Situação CND Estadual
     </h4>
     <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
     <table style="width:100%;border-collapse:collapse;font-family:inherit">
       <thead>
         <tr style="background:var(--header-bg);color:#fff;text-align:center">
           <th style="padding:10px 12px;text-align:left;font-size:.76rem">Município</th>
-          <th style="padding:10px 12px;font-size:.76rem">Situação</th>
+          ${prevCol}
+          <th style="padding:10px 12px;font-size:.73rem;white-space:nowrap">Atual<br><span style="font-weight:400;font-size:.68rem">${curPeriod.label}</span></th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
