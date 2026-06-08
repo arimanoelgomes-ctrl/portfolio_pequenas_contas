@@ -494,6 +494,11 @@
     </div>
   </div>
 
+  <!-- Comparativo Semanal -->
+  <div id="weekly-comparison" style="margin:12px 0 0;background:#F7FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:14px 20px">
+    <div style="text-align:center;color:var(--text-muted);font-size:.8rem">Carregando comparativo semanal…</div>
+  </div>
+
   <!-- Tab Navigation -->
   <div class="tab-nav">
     <button class="tab-btn active" onclick="switchTab(6)">🎯 Chamados de Suporte</button>
@@ -774,6 +779,104 @@ function fetchSheet(sheetName) {
   });
 }
 
+// ─── Comparativo Semanal ─────────────────────────────────────────
+// Variante de fetchSheet com data explícita (não usa state.selectedDate)
+function fetchSheetOnDate(sheetName, dateStr) {
+  return new Promise((resolve, reject) => {
+    const cbName = '_wkCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const timeout = setTimeout(() => { delete window[cbName]; reject(new Error('timeout')); }, 20000);
+    window[cbName] = (r) => {
+      clearTimeout(timeout); delete window[cbName];
+      r.status === 'error' ? reject(new Error(r.message)) : resolve(r.data || []);
+    };
+    const today   = new Date().toISOString().slice(0, 10);
+    const useHist = dateStr !== today && HIST_SHEETS.includes(sheetName);
+    const datePart = useHist ? `&date=${dateStr}` : '';
+    const s = document.createElement('script');
+    s.src = `${CONFIG.APPS_SCRIPT_URL}?sheet=${encodeURIComponent(sheetName)}&callback=${cbName}${datePart}`;
+    s.onerror = () => { clearTimeout(timeout); delete window[cbName]; reject(new Error('erro')); };
+    document.head.appendChild(s);
+  });
+}
+
+// Retorna a data da segunda-feira da semana (offset 0=esta, -1=anterior)
+function _getMonday(weekOffset) {
+  const d = new Date();
+  const day = d.getDay(); // 0=Dom, 1=Seg…
+  const daysToMon = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + daysToMon + (weekOffset * 7));
+  return d.toISOString().slice(0, 10);
+}
+
+async function fetchWeeklyComparison() {
+  const thisMonday = _getMonday(0);
+  const prevMonday = _getMonday(-1);
+
+  const [srvCur, srvPrv, supCur, supPrv, impCur, impPrv] = await Promise.allSettled([
+    fetchSheetOnDate('Jira_Chamados',         thisMonday),
+    fetchSheetOnDate('Jira_Chamados',         prevMonday),
+    fetchSheetOnDate('Jira_Chamados_Suporte', thisMonday),
+    fetchSheetOnDate('Jira_Chamados_Suporte', prevMonday),
+    fetchSheetOnDate('Jira_Implantacoes',     thisMonday),
+    fetchSheetOnDate('Jira_Implantacoes',     prevMonday),
+  ]);
+
+  const sum = (res, field) => res.status === 'fulfilled'
+    ? res.value.reduce((s, r) => s + (parseInt(r[field]) || 0), 0)
+    : null;
+
+  renderWeeklyComparison({
+    thisMonday, prevMonday,
+    servico:      { curr: sum(srvCur, 'total_chamados'), prev: sum(srvPrv, 'total_chamados') },
+    suporte:      { curr: sum(supCur, 'total_chamados'), prev: sum(supPrv, 'total_chamados') },
+    implantacoes: { curr: sum(impCur, 'total'),          prev: sum(impPrv, 'total') },
+  });
+}
+
+function renderWeeklyComparison(data) {
+  const el = document.getElementById('weekly-comparison');
+  if (!el) return;
+
+  const fmtD = (iso) => { if (!iso) return '—'; const [, m, d] = iso.split('-'); return `${d}/${m}`; };
+
+  const metricCard = (label, curr, prev, lessIsBetter) => {
+    if (curr === null || prev === null) {
+      return `<div style="text-align:center;padding:8px 0">
+        <div style="font-size:.74rem;font-weight:700;color:var(--text-muted);margin-bottom:6px">${label}</div>
+        <div style="font-size:1rem;color:#A0AEC0">—</div>
+      </div>`;
+    }
+    const delta = curr - prev;
+    const pct   = prev > 0 ? ` (${delta > 0 ? '+' : ''}${Math.round(delta / prev * 100)}%)` : '';
+    const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+    const color = delta === 0 ? '#718096'
+      : lessIsBetter
+        ? (delta < 0 ? '#276749' : '#C53030')
+        : (delta > 0 ? '#276749' : '#C53030');
+    const deltaStr = `${delta > 0 ? '+' : ''}${delta}${pct}`;
+    return `<div style="text-align:center;padding:8px 4px">
+      <div style="font-size:.74rem;font-weight:700;color:var(--text-muted);margin-bottom:6px">${label}</div>
+      <div style="display:flex;align-items:baseline;justify-content:center;gap:6px;margin-bottom:4px">
+        <span style="font-size:.95rem;color:#A0AEC0">${prev}</span>
+        <span style="font-size:.8rem;color:#CBD5E0">→</span>
+        <span style="font-size:1.25rem;font-weight:800;color:#1A202C">${curr}</span>
+      </div>
+      <div style="font-size:.8rem;font-weight:700;color:${color}">${arrow} ${deltaStr}</div>
+    </div>`;
+  };
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+      <span style="font-size:.76rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">📊 Comparativo Semanal</span>
+      <span style="font-size:.74rem;color:var(--text-muted)">Seg ${fmtD(data.prevMonday)} → Seg ${fmtD(data.thisMonday)}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;border-top:1px solid #E2E8F0;padding-top:10px">
+      ${metricCard('Chamados de Serviço',    data.servico.curr,      data.servico.prev,      true)}
+      ${metricCard('Chamados de Suporte',    data.suporte.curr,      data.suporte.prev,      true)}
+      ${metricCard('Implantações Pendentes', data.implantacoes.curr, data.implantacoes.prev, false)}
+    </div>`;
+}
+
 // Chamado quando o usuário muda a data no seletor
 function onDateChange(val) {
   const today = new Date().toISOString().slice(0, 10);
@@ -918,6 +1021,9 @@ async function loadAllData() {
   renderActiveView();
   showLoading(false);
   document.getElementById('btn-refresh').disabled = false;
+
+  // Comparativo semanal roda em paralelo (não bloqueia a dashboard principal)
+  fetchWeeklyComparison().catch(e => console.warn('Comparativo semanal:', e.message));
 }
 
 // ============================================================
