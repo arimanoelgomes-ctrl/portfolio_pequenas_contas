@@ -18,7 +18,7 @@
 //      Executar como: Eu (seu usuário)
 //      Quem tem acesso: Qualquer pessoa
 //    Copie a URL gerada → cole em CONFIG.APPS_SCRIPT_URL no index.html
-// 6. Execute setupTrigger() para ativar atualização automática (07:00 | 09:30 | 12:00 | 15:30 | 17:00)
+// 6. Execute setupTrigger() para ativar atualização automática (a cada 30 min, entre 08:00 e 18:00)
 // ============================================================
 
 const SHEET_ID_DEFAULT = '1MKsApbL7IPf5jAsAO9N03AxAcC3ptzYbrgNQrOr_R4s';
@@ -139,10 +139,17 @@ const SLEEP_MS             = 200;
 const HIST_RETENTION_DAYS  = 90;  // dias de retenção nas abas _Hist
 
 // ────────────────────────────────────────────────────────────
-// ENTRY POINT — disparado automaticamente pelos triggers (07:00 | 09:30 | 12:00 | 15:30 | 17:00)
+// ENTRY POINT — disparado a cada 30 min; executa apenas entre 08:00 e 18:00
 // ────────────────────────────────────────────────────────────
 function onTimeTrigger() {
   const inicio = new Date();
+  // Guarda de janela: Apps Script não suporta trigger "a cada 30 min em horário X–Y",
+  // então o trigger roda o dia todo e a função só executa dentro da janela.
+  const hora = Number(Utilities.formatDate(inicio, Session.getScriptTimeZone(), 'H'));
+  if (hora < 8 || hora >= 18) {
+    Logger.log(`⏸ Fora da janela 08:00–18:00 (hora atual: ${hora}h) — coleta ignorada.`);
+    return;
+  }
   Logger.log(`▶ Iniciando coleta: ${inicio.toLocaleString('pt-BR')}`);
   try {
     const issues = fetchJiraIssues(JQL);
@@ -1187,8 +1194,8 @@ function snapshotRiscoExclusaoHistory() {
 }
 
 // ────────────────────────────────────────────────────────────
-// SETUP — instala triggers automáticos (executar UMA vez)
-// Horários: 07:00 | 09:30 | 12:00 | 15:30 | 17:00
+// SETUP — instala trigger automático (executar UMA vez)
+// A cada 30 minutos; a janela 08:00–18:00 é aplicada dentro de onTimeTrigger()
 // ────────────────────────────────────────────────────────────
 function setupTrigger() {
   // Remove todos os triggers existentes de onTimeTrigger
@@ -1196,25 +1203,15 @@ function setupTrigger() {
     .filter(t => t.getHandlerFunction() === 'onTimeTrigger')
     .forEach(t => ScriptApp.deleteTrigger(t));
 
-  // Define os 5 horários diários [hora, minuto]
-  const horarios = [
-    [7,  0],   // 07:00
-    [9,  30],  // 09:30
-    [12, 0],   // 12:00
-    [15, 30],  // 15:30
-    [17, 0],   // 17:00
-  ];
+  // Trigger único a cada 30 min — o filtro de horário (08:00–18:00)
+  // é feito no início de onTimeTrigger(), pois o Apps Script não
+  // suporta nativamente intervalo de minutos restrito a uma janela.
+  ScriptApp.newTrigger('onTimeTrigger')
+    .timeBased()
+    .everyMinutes(30)
+    .create();
 
-  horarios.forEach(([hora, minuto]) => {
-    ScriptApp.newTrigger('onTimeTrigger')
-      .timeBased()
-      .everyDays(1)
-      .atHour(hora)
-      .nearMinute(minuto)
-      .create();
-  });
-
-  Logger.log('✅ 5 triggers instalados: 07:00 | 09:30 | 12:00 | 15:30 | 17:00');
+  Logger.log('✅ Trigger instalado: a cada 30 min (executa apenas entre 08:00 e 18:00)');
 }
 
 // ────────────────────────────────────────────────────────────
