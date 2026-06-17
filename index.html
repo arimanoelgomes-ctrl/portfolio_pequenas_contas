@@ -2868,6 +2868,85 @@ function fmtDate(val) {
 // Estado persistente dos dados de implantações (para filtros sem re-renderizar KPIs/gráficos)
 let _implData = null;
 
+// Seleção ativa nos gráficos de Implantações (a vertical vive no <select> impl-f-vert)
+let _implChartSel = { status: new Set(), munClass: new Set() };
+function _implRefresh() { _renderImplCharts(); _updateImplPivot(); }
+
+// (Re)desenha os 3 gráficos com realce conforme a seleção atual
+function _renderImplCharts() {
+  if (!_implData) return;
+  const { munMap, municipios } = _implData;
+
+  let tAtr = 0, tNo = 0, tSem = 0, mAtr = 0, mNo = 0, mSem = 0;
+  const foot = {};
+  IMPL_VERTICAIS.forEach(v => foot[v] = { atrasados: 0, no_prazo: 0, sem_prazo: 0, total: 0 });
+  municipios.forEach(m => {
+    const mm = munMap[m];
+    tAtr += mm.atrasados; tNo += mm.no_prazo; tSem += mm.sem_prazo;
+    if (mm.atrasados > 0) mAtr++; else if (mm.no_prazo > 0) mNo++; else mSem++;
+    IMPL_VERTICAIS.forEach(v => { const c = mm[v]; if (c) { foot[v].atrasados += c.atrasados; foot[v].no_prazo += c.no_prazo; foot[v].sem_prazo += c.sem_prazo; foot[v].total += c.total; } });
+  });
+
+  const COR_ATRASO = '#EF4444', COR_PRAZO = '#22C55E', COR_SEM = '#93C5FD';
+  const STK = ['atrasados', 'no_prazo', 'sem_prazo'];
+  const vertEl = document.getElementById('impl-f-vert');
+  const selVerts = vertEl ? Array.from(vertEl.selectedOptions).map(o => o.value) : [];
+
+  implCharts.forEach(c => c.destroy()); implCharts = [];
+
+  const offMun = STK.map(s => _implChartSel.munClass.has(s) ? 14 : 0);
+  const offSta = STK.map(s => _implChartSel.status.has(s)   ? 14 : 0);
+  const donutLegend = { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } };
+
+  implCharts.push(new Chart(document.getElementById('impl-chart-mun'), {
+    type: 'doughnut',
+    data: { labels: ['Com atraso', 'No prazo', 'Sem prazo'],
+      datasets: [{ data: [mAtr, mNo, mSem], backgroundColor: [COR_ATRASO, COR_PRAZO, COR_SEM], borderWidth: 2, borderColor: '#fff', offset: offMun, hoverOffset: 16 }] },
+    options: { maintainAspectRatio: false,
+      onClick: (e, els) => { if (els.length) _toggleImplStatus('munClass', STK[els[0].index]); },
+      plugins: { legend: donutLegend, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} municípios — clique p/ filtrar` } } } }
+  }));
+
+  implCharts.push(new Chart(document.getElementById('impl-chart-issues'), {
+    type: 'doughnut',
+    data: { labels: ['Atrasadas', 'No prazo', 'Sem prazo'],
+      datasets: [{ data: [tAtr, tNo, tSem], backgroundColor: [COR_ATRASO, COR_PRAZO, COR_SEM], borderWidth: 2, borderColor: '#fff', offset: offSta, hoverOffset: 16 }] },
+    options: { maintainAspectRatio: false,
+      onClick: (e, els) => { if (els.length) _toggleImplStatus('status', STK[els[0].index]); },
+      plugins: { legend: donutLegend, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} implantações — clique p/ filtrar` } } } }
+  }));
+
+  const vertLabels = IMPL_VERTICAIS.filter(v => foot[v].total > 0);
+  const dim = (hex, v) => (selVerts.length && !selVerts.includes(v)) ? hex + '59' : hex;
+  implCharts.push(new Chart(document.getElementById('impl-chart-vert'), {
+    type: 'bar',
+    data: { labels: vertLabels, datasets: [
+      { label: 'Atrasadas', data: vertLabels.map(v => foot[v].atrasados), backgroundColor: vertLabels.map(v => dim(COR_ATRASO, v)) },
+      { label: 'No prazo',  data: vertLabels.map(v => foot[v].no_prazo),  backgroundColor: vertLabels.map(v => dim(COR_PRAZO, v)) },
+      { label: 'Sem prazo', data: vertLabels.map(v => foot[v].sem_prazo), backgroundColor: vertLabels.map(v => dim(COR_SEM, v)) },
+    ] },
+    options: { indexAxis: 'y', maintainAspectRatio: false,
+      onClick: (e, els) => { if (els.length) _toggleImplVert(vertLabels[els[0].index]); },
+      scales: { x: { stacked: true, grid: { color: '#F1F5F9' }, ticks: { font: { size: 10 } } },
+                y: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 } } } },
+      plugins: { legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } },
+        tooltip: { mode: 'index', intersect: false } } }
+  }));
+}
+
+function _toggleImplStatus(kind, key) {
+  const set = _implChartSel[kind];
+  set.has(key) ? set.delete(key) : set.add(key);
+  _implRefresh();
+}
+function _toggleImplVert(vert) {
+  const el = document.getElementById('impl-f-vert');
+  if (!el) return;
+  const opt = Array.from(el.options).find(o => o.value === vert);
+  if (opt) opt.selected = !opt.selected;
+  _implRefresh();
+}
+
 function renderImplantacoes() {
   const container = document.getElementById('impl-content');
   implCharts.forEach(c => c.destroy());
@@ -2990,7 +3069,7 @@ function renderImplantacoes() {
       <div style="display:flex;flex-direction:column;gap:3px">
         <label style="font-size:.72rem;font-weight:600;color:#4A5568;text-transform:uppercase">Vertical <span style="font-size:.65rem;font-weight:400;color:#94A3B8">(Ctrl+clique p/ múltiplas)</span></label>
         <div style="display:flex;gap:5px;align-items:flex-start">
-          <select id="impl-f-vert" multiple size="4" style="${inputStyle};min-width:160px;height:auto" onchange="_updateImplPivot()">
+          <select id="impl-f-vert" multiple size="4" style="${inputStyle};min-width:160px;height:auto" onchange="_implRefresh()">
             ${vertOpts}
           </select>
           ${modeBtn('impl-f-vert-mode')}
@@ -3019,74 +3098,9 @@ function renderImplantacoes() {
   container.innerHTML = kpiHtml + chartsHtml + filterHtml +
     `<div id="impl-pivot-wrapper"></div>` + legendaHtml;
 
-  // --- Inicializar gráficos (após innerHTML) ---
-  const COR_ATRASO = '#EF4444';
-  const COR_PRAZO  = '#22C55E';
-  const COR_SEM    = '#93C5FD';
-  const BORDA      = { borderWidth: 2, borderColor: '#fff' };
-
-  // Gráfico 1: Municípios por status de prazo
-  implCharts.push(new Chart(document.getElementById('impl-chart-mun'), {
-    type: 'doughnut',
-    data: {
-      labels: ['Com atraso', 'No prazo', 'Sem prazo'],
-      datasets: [{ data: [munComAtraso.length, munNoPrazo.length, munSemPrazo.length],
-        backgroundColor: [COR_ATRASO, COR_PRAZO, COR_SEM], ...BORDA }]
-    },
-    options: {
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} municípios` } }
-      }
-    }
-  }));
-
-  // Gráfico 2: Issues por status de prazo
-  implCharts.push(new Chart(document.getElementById('impl-chart-issues'), {
-    type: 'doughnut',
-    data: {
-      labels: ['Atrasadas', 'No prazo', 'Sem prazo'],
-      datasets: [{ data: [totalAtrasado, totalNoPrazo, totalSemPrazo],
-        backgroundColor: [COR_ATRASO, COR_PRAZO, COR_SEM], ...BORDA }]
-    },
-    options: {
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} implantações` } }
-      }
-    }
-  }));
-
-  // Gráfico 3: Por vertical — barra horizontal empilhada
-  const vertLabels = IMPL_VERTICAIS.filter(v => footTotais[v].total > 0);
-  implCharts.push(new Chart(document.getElementById('impl-chart-vert'), {
-    type: 'bar',
-    data: {
-      labels: vertLabels,
-      datasets: [
-        { label: 'Atrasadas', data: vertLabels.map(v => footTotais[v].atrasados), backgroundColor: COR_ATRASO },
-        { label: 'No prazo',  data: vertLabels.map(v => footTotais[v].no_prazo),  backgroundColor: COR_PRAZO  },
-        { label: 'Sem prazo', data: vertLabels.map(v => footTotais[v].sem_prazo), backgroundColor: COR_SEM    },
-      ]
-    },
-    options: {
-      indexAxis: 'y',
-      maintainAspectRatio: false,
-      scales: {
-        x: { stacked: true, grid: { color: '#F1F5F9' }, ticks: { font: { size: 10 } } },
-        y: { stacked: true, grid: { display: false },   ticks: { font: { size: 10 } } }
-      },
-      plugins: {
-        legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } },
-        tooltip: { mode: 'index', intersect: false }
-      }
-    }
-  }));
-
-  // Renderiza pivot com filtros zerados
-  _updateImplPivot();
+  // --- Gráficos selecionáveis + pivot ---
+  _implChartSel = { status: new Set(), munClass: new Set() };
+  _implRefresh();
 }
 
 // Atualiza apenas o pivot de implantações com base nos filtros atuais
@@ -3101,43 +3115,40 @@ function _updateImplPivot() {
   const modeVert  = (document.getElementById('impl-f-vert-mode') || {}).dataset?.mode  || 'include';
   const modeProd  = (document.getElementById('impl-f-prod-mode') || {}).dataset?.mode  || 'include';
 
-  // Múltiplos termos separados por vírgula
   const munTerms  = fMun  ? fMun .toLowerCase().split(',').map(s => s.trim()).filter(Boolean) : [];
   const prodTerms = fProd ? fProd.toLowerCase().split(',').map(s => s.trim()).filter(Boolean) : [];
+  const selectedVerts = vertEl ? Array.from(vertEl.selectedOptions).map(o => o.value).filter(Boolean) : [];
 
-  // Verticais selecionadas no multi-select (nenhuma selecionada = todas)
-  const selectedVerts = vertEl
-    ? Array.from(vertEl.selectedOptions).map(o => o.value).filter(Boolean)
-    : [];
+  // Seleção vinda dos gráficos
+  const statusSel   = [..._implChartSel.status];     // subconjunto de ['atrasados','no_prazo','sem_prazo']
+  const munClassSel = [..._implChartSel.munClass];
+  const STATUS_LBL  = { atrasados: 'Atrasadas', no_prazo: 'No prazo', sem_prazo: 'Sem prazo' };
 
   const { munMap, municipios } = _implData;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
 
-  // Verticais visíveis — filtro Vertical opera em colunas
-  // include → mostra só as selecionadas; exclude → esconde as selecionadas; nenhuma selecionada → todas
   const verticais = selectedVerts.length
     ? (modeVert === 'exclude'
         ? IMPL_VERTICAIS.filter(v => !selectedVerts.includes(v))
         : IMPL_VERTICAIS.filter(v => selectedVerts.includes(v)))
     : IMPL_VERTICAIS;
 
-  // Municípios visíveis — filtro Município opera em linhas
-  // include → mantém se bater em QUALQUER termo; exclude → mantém se não bater em NENHUM termo
-  // filtro Produto NÃO remove linhas: opera apenas em células
+  // Classe agregada do município (mesma lógica da rosquinha "Municípios por Status")
+  const munClassOf = m => { const mm = munMap[m]; return mm.atrasados > 0 ? 'atrasados' : mm.no_prazo > 0 ? 'no_prazo' : 'sem_prazo'; };
+
   const munFiltrados = municipios.filter(m => {
     if (munTerms.length) {
       const mL = m.toLowerCase();
       const matchesAny = munTerms.some(t => mL.includes(t));
       if (modeMun === 'exclude' ? matchesAny : !matchesAny) return false;
     }
+    if (munClassSel.length && !munClassSel.includes(munClassOf(m))) return false;
     return true;
   });
 
-  // filteredMap: quando há filtro de produto, reconstrói os contadores
-  // célula a célula a partir das issues individuais filtradas.
-  // Sem filtro de produto, getCell() devolve os dados originais do munMap.
+  // Filtro de produto: reconstrói células a partir das issues
   let filteredMap = null;
   if (prodTerms.length) {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
     filteredMap = {};
     state.implantacoesIssues.forEach(r => {
       const sumL = (r.summary || '').toLowerCase();
@@ -3153,34 +3164,43 @@ function _updateImplPivot() {
         const d = new Date(r.prazo);
         if (!isNaN(d.getTime())) { if (d < today) filteredMap[m][v].atrasados++; else filteredMap[m][v].no_prazo++; }
         else filteredMap[m][v].sem_prazo++;
-      } else {
-        filteredMap[m][v].sem_prazo++;
-      }
+      } else { filteredMap[m][v].sem_prazo++; }
     });
   }
 
-  // Retorna dados da célula (filtrados ou originais)
   const getCell = (m, v) => filteredMap
     ? (filteredMap[m] && filteredMap[m][v] && filteredMap[m][v].total > 0 ? filteredMap[m][v] : null)
     : (munMap[m] && munMap[m][v]);
 
-  // Totais de rodapé — recalculados sobre células visíveis após filtro de produto
+  // Projeção por status selecionado (recontagem) — devolve null se zera
+  const proj = cell => {
+    if (!cell || !cell.total) return null;
+    if (!statusSel.length) return cell;
+    const o = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0, prazo_minimo: cell.prazo_minimo };
+    statusSel.forEach(st => { o[st] = cell[st] || 0; o.total += cell[st] || 0; });
+    return o.total > 0 ? o : null;
+  };
+  const cellOf = (m, v) => proj(getCell(m, v));
+
+  // Totais por vertical (sobre células projetadas)
   const footTotais = {};
   verticais.forEach(v => {
     footTotais[v] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
     munFiltrados.forEach(m => {
-      const c = getCell(m, v);
+      const c = cellOf(m, v);
       if (!c) return;
-      footTotais[v].total     += c.total;
-      footTotais[v].atrasados += c.atrasados;
-      footTotais[v].no_prazo  += c.no_prazo;
-      footTotais[v].sem_prazo += c.sem_prazo;
+      footTotais[v].total += c.total; footTotais[v].atrasados += c.atrasados; footTotais[v].no_prazo += c.no_prazo; footTotais[v].sem_prazo += c.sem_prazo;
     });
   });
 
-  const totalGeral = verticais.reduce((s, v) => s + footTotais[v].total, 0);
+  // Esconde colunas vazias quando há recontagem (status/produto) e linhas sem nenhum total
+  const verticaisVis = (statusSel.length || prodTerms.length)
+    ? verticais.filter(v => footTotais[v].total > 0)
+    : verticais;
+  const linhasVis = munFiltrados.filter(m => verticaisVis.some(v => { const c = cellOf(m, v); return c && c.total > 0; }));
+  const totalGeral = verticaisVis.reduce((s, v) => s + footTotais[v].total, 0);
 
-  if (!munFiltrados.length) {
+  if (!linhasVis.length || !verticaisVis.length) {
     wrapper.innerHTML = `<div style="padding:24px;text-align:center;color:#94A3B8;font-size:.85rem">Nenhum resultado para os filtros aplicados.</div>`;
     return;
   }
@@ -3189,29 +3209,27 @@ function _updateImplPivot() {
   const thFirst = `padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
   const cb      = `padding:5px 8px;text-align:center;font-size:.8rem;border-right:1px solid #EDF2F7`;
 
-  const headerCells = verticais.map(v =>
+  const headerCells = verticaisVis.map(v =>
     `<th style="${thStyle}" title="${v}">${v.length > 9 ? v.slice(0,8)+'…' : v}</th>`).join('');
 
-  const bodyRows = munFiltrados.map((m, ri) => {
+  const bodyRows = linhasVis.map((m, ri) => {
     const bg = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
-
-    const cells = verticais.map(v => {
-      const cell = getCell(m, v);
+    const cells = verticaisVis.map(v => {
+      const cell = cellOf(m, v);
       if (!cell || cell.total === 0) return `<td style="${cb};color:#CBD5E0">—</td>`;
-      const s = implCellStyle(cell);
+      const sty = implCellStyle(cell);
       const tipParts = [];
       if (cell.atrasados > 0) tipParts.push(`Atrasadas: ${cell.atrasados}${cell.prazo_minimo ? ' (prazo: ' + fmtDate(cell.prazo_minimo) + ')' : ''}`);
       if (cell.no_prazo  > 0) tipParts.push(`No prazo: ${cell.no_prazo}`);
       if (cell.sem_prazo > 0) tipParts.push(`Sem prazo: ${cell.sem_prazo}`);
       const munAttr  = m.replace(/"/g, '&quot;');
       const vertAttr = v.replace(/"/g, '&quot;');
-      return `<td style="${cb};background:${s.bg};color:${s.text};font-weight:600;border:1px solid ${s.border};cursor:pointer" title="${tipParts.join(' · ')}" data-mun="${munAttr}" data-vert="${vertAttr}" onclick="openImplModal(this)">${cell.total}</td>`;
+      return `<td style="${cb};background:${sty.bg};color:${sty.text};font-weight:600;border:1px solid ${sty.border};cursor:pointer" title="${tipParts.join(' · ')}" data-mun="${munAttr}" data-vert="${vertAttr}" onclick="openImplModal(this)">${cell.total}</td>`;
     }).join('');
 
-    // Total e cor da linha a partir dos dados já filtrados
-    const linhaTotal  = verticais.reduce((s, v) => { const c = getCell(m, v); return c ? s + c.total     : s; }, 0);
-    const linhaAtraso = verticais.reduce((s, v) => { const c = getCell(m, v); return c ? s + c.atrasados : s; }, 0);
-    const linhaPrazo  = verticais.reduce((s, v) => { const c = getCell(m, v); return c ? s + c.no_prazo  : s; }, 0);
+    const linhaTotal  = verticaisVis.reduce((s, v) => { const c = cellOf(m, v); return c ? s + c.total     : s; }, 0);
+    const linhaAtraso = verticaisVis.reduce((s, v) => { const c = cellOf(m, v); return c ? s + c.atrasados : s; }, 0);
+    const linhaPrazo  = verticaisVis.reduce((s, v) => { const c = cellOf(m, v); return c ? s + c.no_prazo  : s; }, 0);
     const totalCor = linhaAtraso > 0 ? '#B91C1C' : linhaPrazo > 0 ? '#15803D' : '#475569';
 
     return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
@@ -3221,25 +3239,31 @@ function _updateImplPivot() {
     </tr>`;
   }).join('');
 
-  // Pré-popula _implTotalIssues para uso pelos cliques no rodapé
+  // Classifica status de prazo de uma issue (para listas dos modais coerentes com o filtro)
+  const issueStatus = r => {
+    if (r.prazo) { const d = new Date(r.prazo); if (!isNaN(d.getTime())) return d < today ? 'atrasados' : 'no_prazo'; }
+    return 'sem_prazo';
+  };
+
   _implTotalIssues = { __all__: [] };
-  verticais.forEach(v => { _implTotalIssues[v] = []; });
+  verticaisVis.forEach(v => { _implTotalIssues[v] = []; });
   state.implantacoesIssues.forEach(r => {
     const m = (r.municipio || '').trim();
     const v = (r.vertical  || '').trim();
-    if (!munFiltrados.includes(m)) return;
-    if (!verticais.includes(v)) return;
+    if (!linhasVis.includes(m)) return;
+    if (!verticaisVis.includes(v)) return;
     if (prodTerms.length) {
       const sumL = (r.summary || '').toLowerCase();
       const matchesAny = prodTerms.some(t => sumL.includes(t));
       if (modeProd === 'exclude' ? matchesAny : !matchesAny) return;
     }
+    if (statusSel.length && !statusSel.includes(issueStatus(r))) return;
     _implTotalIssues[v].push(r);
     _implTotalIssues.__all__.push(r);
   });
 
   const tdFoot = `padding:6px 8px;text-align:center;font-size:.78rem;border-right:1px solid #CBD5E0;cursor:pointer`;
-  const footCells = verticais.map(v => {
+  const footCells = verticaisVis.map(v => {
     const f = footTotais[v];
     if (!f.total) return `<td style="${tdFoot};color:#94A3B8;background:#EDF2F7">—</td>`;
     const cor = f.atrasados > 0 ? '#B91C1C' : f.no_prazo > 0 ? '#15803D' : '#3B82F6';
@@ -3247,10 +3271,10 @@ function _updateImplPivot() {
     return `<td style="${tdFoot};font-weight:700;color:${cor};background:#EDF2F7" title="Ver lista · ${f.total} chamados" onclick="openImplTotalModal('${vAttr}')">${f.total}</td>`;
   }).join('');
 
-  // Indicador de filtros ativos
-  const filtrosAtivos = [fMun, selectedVerts.length ? selectedVerts.join(', ') : '', fProd].filter(Boolean);
-  const filtroInfo = filtrosAtivos.length
-    ? `<div style="font-size:.73rem;color:#4A5568;margin-bottom:8px">🔍 ${munFiltrados.length} município(s) exibido(s) de ${municipios.length}</div>`
+  const selLabels = [...statusSel.map(x => STATUS_LBL[x]), ...munClassSel.map(x => 'Mun: ' + STATUS_LBL[x])];
+  const temFiltro = fMun || selectedVerts.length || fProd || statusSel.length || munClassSel.length;
+  const filtroInfo = temFiltro
+    ? `<div style="font-size:.73rem;color:#4A5568;margin-bottom:8px">🔍 ${linhasVis.length} município(s) de ${municipios.length}${selLabels.length ? ' · ' + selLabels.join(', ') : ''}</div>`
     : '';
 
   wrapper.innerHTML = filtroInfo + `
@@ -3311,7 +3335,8 @@ function _clearImplFilters() {
     btn.style.background = '#F0FDF4';
     btn.style.color = '#15803D';
   });
-  _updateImplPivot();
+  _implChartSel = { status: new Set(), munClass: new Set() };
+  _implRefresh();
 }
 
 // ============================================================
