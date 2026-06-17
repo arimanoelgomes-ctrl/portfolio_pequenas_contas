@@ -1673,79 +1673,44 @@ function renderChamadosPorVertical() {
 // HELPER — linha de issue para tabelas de SLO (reutilizado por Serviço e Suporte)
 // ============================================================
 // ============================================================
-// CHAMADOS DEPENDENDO DE AÇÃO DO TIME DE ATENDIMENTO/SERVIÇOS
-// Regra: dentre os chamados abertos, dependem de ação do time
-// TODOS aqueles cujo status NÃO está na lista abaixo (espelha o
-// "status not in (...)" do JQL do Jira).
+// CLASSIFICAÇÃO DE CHAMADOS ABERTOS
+//   • cliente  → aguardando retorno do cliente/solicitante/negociação
+//   • depende  → TODO o restante depende de ação do time, INCLUSIVE
+//                os que aguardam triagem/atendimento (também são ação
+//                do time) e Em atendimento (FL)/N2 (SUP), planejamento.
+//   • fila     → SUBCONJUNTO de "depende": em triagem (Suporte) /
+//                em atendimento (Serviço) — exibido como recorte próprio.
+// Soma: depende + cliente = 100% dos abertos (fila está dentro de depende).
 // ============================================================
-const STATUS_NAO_DEPENDE_TIME = [
-  'Aguardando Aprovação do Cliente (Triagem)',
-  'Aguardando aprovação do cliente (Apoio)',
-  'Aguardando Aprovação do Cliente',
-  'Aguardando aprovação do solicitante',
-  'Aguardando solicitante',
-  'Em atendimento (FL)',
-  'Realizando triagem (SUP)',
-  'Em atendimento N2 (SUP)',
-  'Em Planejamento',
-  'Aguardando planejamento',
-  'Aguardando Negociação',
-  'Aguardando informações (Planejamento)'
-];
+
 // Normaliza status p/ comparação robusta (sem acento, minúsculo, espaços colapsados)
 function _normStatus(s) {
   return (s || '').toString().trim().toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
 }
-const _STATUS_NAO_DEPENDE_SET = new Set(STATUS_NAO_DEPENDE_TIME.map(_normStatus));
-// true se o chamado depende de ação do time (status fora da lista de exceções)
-function dependeDoTime(r) {
-  return !_STATUS_NAO_DEPENDE_SET.has(_normStatus(r.status));
+
+// Status que aguardam retorno do cliente/solicitante (não dependem do time)
+const STATUS_AGUARDANDO_CLIENTE = [
+  'Aguardando Aprovação do Cliente',
+  'Aguardando aprovação do cliente (Apoio)',
+  'Aguardando aprovação do solicitante',
+  'Aguardando solicitante',
+  'Aguardando Negociação',
+  'Aguardando informações (Planejamento)'
+];
+const _SET_CLIENTE = new Set(STATUS_AGUARDANDO_CLIENTE.map(_normStatus));
+function isAguardandoCliente(r) { return _SET_CLIENTE.has(_normStatus(r.status)); }
+function isTriagemStatus(r)     { return _normStatus(r.status).includes('triagem'); }
+function isAtendimentoStatus(r) { return _normStatus(r.status).includes('atendimento'); }
+
+// Recorte "fila" por guia: em triagem (Suporte) / em atendimento (Serviço)
+function isFilaStatus(r, source) {
+  return source === 'suporte' ? isTriagemStatus(r) : isAtendimentoStatus(r);
 }
-
-// Renderiza a seção "Dependendo de Ação do Time" (card de total + tabelas por vertical)
-function renderDependeTime(containerId, pool) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  const issues = (pool || [])
-    .filter(dependeDoTime)
-    .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
-  const total  = issues.length;
-  const sloEst = issues.filter(r => (r.slo_horas || '').startsWith('-')).length;
-
-  if (!total) {
-    container.innerHTML = `
-      <div style="border:1px solid #86EFAC;background:#F0FDF4;border-radius:10px;padding:14px 18px;margin-bottom:24px;display:flex;align-items:center;gap:10px">
-        <span style="font-size:1.2rem">✅</span>
-        <span style="font-size:.85rem;font-weight:600;color:#15803D">Nenhum chamado aberto depende de ação do time de atendimento e serviços no momento.</span>
-      </div>`;
-    return;
-  }
-
-  const sloBadge = sloEst > 0
-    ? `<span style="font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:12px;background:#FEE2E2;color:#B91C1C;border:1px solid #FECACA">${sloEst} com SLO estourado</span>`
-    : `<span style="font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:12px;background:#DCFCE7;color:#15803D;border:1px solid #86EFAC">✓ Sem SLO estourado</span>`;
-
-  container.innerHTML = `
-    <div style="border:1px solid #C7D2FE;background:#EEF2FF;border-radius:10px;padding:16px 18px;margin-bottom:24px">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
-        <span style="font-size:.95rem;font-weight:800;color:#3730A3">👥 Dependendo de Ação do Time</span>
-        <span style="font-size:1.7rem;font-weight:800;color:#4338CA;line-height:1">${total}</span>
-        ${sloBadge}
-      </div>
-      <div style="font-size:.74rem;color:#6366F1;margin-bottom:14px;line-height:1.45">
-        Chamados abertos cujo status indica ação pendente da equipe de atendimento e serviços —
-        exclui status aguardando cliente/solicitante, em planejamento, em negociação e filas de triagem/atendimento (FL, SUP).
-      </div>
-      <div id="${containerId}-tabelas"></div>
-    </div>`;
-
-  _renderIssuesPorVertical(
-    document.getElementById(containerId + '-tabelas'),
-    issues,
-    '📋 Detalhamento por vertical'
-  );
+// Depende de ação do time = tudo que NÃO está aguardando retorno do cliente.
+// (Inclui triagem/atendimento, pois também são ações do time.)
+function dependeDoTime(r) {
+  return !isAguardandoCliente(r);
 }
 
 function _buildIssueRow(r, i) {
@@ -1842,7 +1807,7 @@ function renderChamadosAtendimento() {
 // ============================================================
 // ============================================================
 // VISÃO INTERATIVA DE CHAMADOS (Suporte / Serviço)
-// 2 pizzas por vertical (selecionáveis) + 1 listagem plana filtrável
+// 3 pizzas por vertical (selecionáveis) + 1 listagem por vertical filtrável
 // ============================================================
 const VERT_PIE_COLORS = ['#2B6CB0','#DD6B20','#38A169','#805AD5','#D69E2E','#0987A0','#C53030','#3182CE','#9F7AEA','#48BB78','#718096','#ED8936'];
 
@@ -1851,21 +1816,16 @@ const _chFilter = { suporte: { ds: null, verts: new Set() }, servico: { ds: null
 
 // Configuração de cada guia (pools de chamados por conjunto)
 function _chamadosCfg(source) {
-  if (source === 'suporte') {
-    const all = state.suporteIssues || [];
-    return {
-      source, all, summary: state.suporte || [],
-      pie1: { key:'depende', label:'Dependendo de Ação do Time', color:'#4338CA', issues: all.filter(dependeDoTime) },
-      pie2: { key:'fila',    label:'Aguardando Triagem × SLO',   color:'#B45309', issues: all.filter(r => (r.status||'').toLowerCase().includes('triagem')) },
-      filaLabel: 'Aguard. Triagem', filaSloLabel: 'Triagem c/ SLO Estourado'
-    };
-  }
-  const all = state.chamadosIssues || [];
+  const all = (source === 'suporte' ? state.suporteIssues : state.chamadosIssues) || [];
   return {
-    source, all, summary: state.jira || [],
-    pie1: { key:'depende', label:'Dependendo de Ação do Time', color:'#4338CA', issues: all.filter(dependeDoTime) },
-    pie2: { key:'fila',    label:'Aguardando Atendimento × SLO', color:'#0E7490', issues: all.filter(r => (r.status||'').toLowerCase().includes('atendimento')) },
-    filaLabel: 'Aguard. Atendimento', filaSloLabel: 'Atendimento c/ SLO Estourado'
+    source, all,
+    summary: (source === 'suporte' ? state.suporte : state.jira) || [],
+    pie1: { key:'depende', label:'Dependendo de Ação do Time',     color:'#4338CA', issues: all.filter(dependeDoTime) },
+    pie2: { key:'fila',    label: source === 'suporte' ? 'Aguardando Triagem × SLO' : 'Aguardando Atendimento × SLO',
+            color: source === 'suporte' ? '#B45309' : '#0E7490', issues: all.filter(r => isFilaStatus(r, source)) },
+    pie3: { key:'cliente', label:'Aguardando Retorno do Cliente',  color:'#9D174D', issues: all.filter(isAguardandoCliente) },
+    filaLabel:    source === 'suporte' ? 'Aguard. Triagem' : 'Aguard. Atendimento',
+    filaSloLabel: source === 'suporte' ? 'Triagem c/ SLO Estourado' : 'Atendimento c/ SLO Estourado'
   };
 }
 
@@ -1875,7 +1835,7 @@ function _chamadosFiltered(cfg) {
   let arr;
   if (!cur.ds || cur.verts.size === 0) arr = cfg.all;
   else {
-    const ds = cur.ds === 'depende' ? cfg.pie1.issues : cfg.pie2.issues;
+    const ds = cur.ds === 'depende' ? cfg.pie1.issues : cur.ds === 'fila' ? cfg.pie2.issues : cfg.pie3.issues;
     arr = ds.filter(r => cur.verts.has(r.vertical || 'Não informado'));
   }
   return [...arr].sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
@@ -1978,21 +1938,21 @@ function _renderChamadosTab(source, container) {
     ${kpi(filaSlo, cfg.filaSloLabel, filaSlo > 0 ? '#FEF2F2' : '#F8FAFC', filaSlo > 0 ? '#FECACA' : '#E2E8F0', filaSlo > 0 ? '#DC2626' : '#64748B', filaSlo > 0 ? '#EF4444' : '#94A3B8')}
   </div>`;
 
-  const c1 = source + '-pie-depende', c2 = source + '-pie-fila';
+  const c1 = source + '-pie-depende', c2 = source + '-pie-fila', c3 = source + '-pie-cliente';
+  const pieCard = (pie, canvasId, icon) => `
+      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px">
+        <div style="font-size:.85rem;font-weight:700;color:${pie.color};margin-bottom:8px;display:flex;align-items:center;gap:6px">${icon} ${pie.label} <span style="font-size:.72rem;font-weight:600;color:#718096">${pie.issues.length}</span></div>
+        <div style="position:relative;height:300px"><canvas id="${canvasId}"></canvas></div>
+      </div>`;
   const piesHtml = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px">
-        <div style="font-size:.85rem;font-weight:700;color:${cfg.pie1.color};margin-bottom:8px;display:flex;align-items:center;gap:6px">👥 ${cfg.pie1.label} <span style="font-size:.72rem;font-weight:600;color:#718096">${cfg.pie1.issues.length}</span></div>
-        <div style="position:relative;height:300px"><canvas id="${c1}"></canvas></div>
-      </div>
-      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px">
-        <div style="font-size:.85rem;font-weight:700;color:${cfg.pie2.color};margin-bottom:8px;display:flex;align-items:center;gap:6px">⏳ ${cfg.pie2.label} <span style="font-size:.72rem;font-weight:600;color:#718096">${cfg.pie2.issues.length}</span></div>
-        <div style="position:relative;height:300px"><canvas id="${c2}"></canvas></div>
-      </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:20px">
+      ${pieCard(cfg.pie1, c1, '👥')}
+      ${pieCard(cfg.pie2, c2, '⏳')}
+      ${pieCard(cfg.pie3, c3, '🙋')}
     </div>`;
 
   const filterActive = cur.ds && cur.verts.size > 0;
-  const dsLabel = cur.ds === 'depende' ? cfg.pie1.label : cfg.pie2.label;
+  const dsLabel = cur.ds === 'depende' ? cfg.pie1.label : cur.ds === 'fila' ? cfg.pie2.label : cfg.pie3.label;
   const chips = filterActive ? [...cur.verts].map(v =>
     `<span style="font-size:.76rem;font-weight:700;padding:3px 12px;border-radius:14px;background:#E0E7FF;color:#3730A3;border:1px solid #C7D2FE">${v}</span>`).join(' ') : '';
   const filtroBar = filterActive
@@ -2009,6 +1969,7 @@ function _renderChamadosTab(source, container) {
   container.innerHTML = kpiHtml + piesHtml + filtroBar + `<div id="${source}-listagem"></div>`;
   _renderVertPie(c1, cfg.pie1.issues, source, 'depende');
   _renderVertPie(c2, cfg.pie2.issues, source, 'fila');
+  _renderVertPie(c3, cfg.pie3.issues, source, 'cliente');
   const listEl = document.getElementById(source + '-listagem');
   if (!listIssues.length) {
     listEl.innerHTML = '<p style="text-align:center;color:#94A3B8;padding:24px">Nenhum chamado para o filtro selecionado.</p>';
