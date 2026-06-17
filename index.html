@@ -1847,7 +1847,7 @@ function renderChamadosAtendimento() {
 const VERT_PIE_COLORS = ['#2B6CB0','#DD6B20','#38A169','#805AD5','#D69E2E','#0987A0','#C53030','#3182CE','#9F7AEA','#48BB78','#718096','#ED8936'];
 
 // Filtro ativo por guia: ds = 'depende' | 'fila' | null ; vert = string | null
-const _chFilter = { suporte: { ds: null, vert: null }, servico: { ds: null, vert: null } };
+const _chFilter = { suporte: { ds: null, verts: new Set() }, servico: { ds: null, verts: new Set() } };
 
 // Configuração de cada guia (pools de chamados por conjunto)
 function _chamadosCfg(source) {
@@ -1873,10 +1873,10 @@ function _chamadosCfg(source) {
 function _chamadosFiltered(cfg) {
   const cur = _chFilter[cfg.source];
   let arr;
-  if (!cur.vert) arr = cfg.all;
+  if (!cur.ds || cur.verts.size === 0) arr = cfg.all;
   else {
     const ds = cur.ds === 'depende' ? cfg.pie1.issues : cfg.pie2.issues;
-    arr = ds.filter(r => (r.vertical || 'Não informado') === cur.vert);
+    arr = ds.filter(r => cur.verts.has(r.vertical || 'Não informado'));
   }
   return [...arr].sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
 }
@@ -1917,7 +1917,7 @@ function _renderVertPie(canvasId, issues, source, dsKey) {
   }
   const colors  = labels.map((_, i) => VERT_PIE_COLORS[i % VERT_PIE_COLORS.length]);
   const cur     = _chFilter[source];
-  const offsets = labels.map(l => (cur.ds === dsKey && cur.vert === l) ? 18 : 0);
+  const offsets = labels.map(l => (cur.ds === dsKey && cur.verts.has(l)) ? 18 : 0);
   charts[canvasId] = new Chart(cont, {
     type: 'doughnut',
     data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#fff', offset: offsets, hoverOffset: 18 }] },
@@ -1945,12 +1945,13 @@ function _renderVertPie(canvasId, issues, source, dsKey) {
 
 function _toggleChamadosFilter(source, dsKey, vert) {
   const cur = _chFilter[source];
-  if (cur.ds === dsKey && cur.vert === vert) { cur.ds = null; cur.vert = null; }
-  else { cur.ds = dsKey; cur.vert = vert; }
+  if (cur.ds !== dsKey) { cur.ds = dsKey; cur.verts = new Set([vert]); }
+  else if (cur.verts.has(vert)) { cur.verts.delete(vert); if (cur.verts.size === 0) cur.ds = null; }
+  else { cur.verts.add(vert); }
   source === 'suporte' ? renderChamadosSuporte() : renderChamadosServico();
 }
 function _clearChamadosFilter(source) {
-  _chFilter[source] = { ds: null, vert: null };
+  _chFilter[source] = { ds: null, verts: new Set() };
   source === 'suporte' ? renderChamadosSuporte() : renderChamadosServico();
 }
 
@@ -1990,26 +1991,30 @@ function _renderChamadosTab(source, container) {
       </div>
     </div>`;
 
-  const filtroBar = cur.vert
-    ? `<div style="display:flex;align-items:center;gap:10px;margin:18px 0 12px;flex-wrap:wrap">
-         <span style="font-size:.78rem;color:#475569">Filtro ativo:</span>
-         <span style="font-size:.78rem;font-weight:700;padding:3px 12px;border-radius:14px;background:#E0E7FF;color:#3730A3;border:1px solid #C7D2FE">${(cur.ds === 'depende' ? cfg.pie1.label : cfg.pie2.label)} · ${cur.vert}</span>
+  const filterActive = cur.ds && cur.verts.size > 0;
+  const dsLabel = cur.ds === 'depende' ? cfg.pie1.label : cfg.pie2.label;
+  const chips = filterActive ? [...cur.verts].map(v =>
+    `<span style="font-size:.76rem;font-weight:700;padding:3px 12px;border-radius:14px;background:#E0E7FF;color:#3730A3;border:1px solid #C7D2FE">${v}</span>`).join(' ') : '';
+  const filtroBar = filterActive
+    ? `<div style="display:flex;align-items:center;gap:8px;margin:18px 0 12px;flex-wrap:wrap">
+         <span style="font-size:.78rem;color:#475569">Filtro (${dsLabel}):</span>
+         ${chips}
          <button onclick="_clearChamadosFilter('${source}')" style="font-size:.74rem;font-weight:600;padding:3px 12px;border-radius:14px;border:1px solid #CBD5E0;background:#fff;color:#475569;cursor:pointer">✕ Limpar filtro</button>
        </div>`
-    : `<div style="font-size:.74rem;color:#94A3B8;margin:18px 0 12px;font-style:italic">💡 Clique numa fatia dos gráficos para filtrar a listagem por vertical. Clique novamente para limpar.</div>`;
+    : `<div style="font-size:.74rem;color:#94A3B8;margin:18px 0 12px;font-style:italic">💡 Clique em uma ou mais fatias dos gráficos para filtrar a listagem por vertical. Clique de novo numa fatia para removê-la.</div>`;
 
   const listIssues = _chamadosFiltered(cfg);
-  const listTitle  = cur.vert ? `${(cur.ds === 'depende' ? cfg.pie1.label : cfg.pie2.label)} · ${cur.vert}` : 'Todos os chamados em aberto';
-  const listHtml = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
-      <span style="font-size:.9rem;font-weight:700;color:#1E3A5F">📋 Listagem — ${listTitle}</span>
-      <span style="font-size:.74rem;color:#718096">${listIssues.length} chamado(s) — ordenado por SLO mais crítico</span>
-    </div>
-    ${_buildFlatChamadosTable(listIssues)}`;
+  const listLabel  = filterActive ? `${dsLabel} · ${[...cur.verts].join(', ')}` : 'Todos os chamados em aberto';
 
-  container.innerHTML = kpiHtml + piesHtml + filtroBar + listHtml;
+  container.innerHTML = kpiHtml + piesHtml + filtroBar + `<div id="${source}-listagem"></div>`;
   _renderVertPie(c1, cfg.pie1.issues, source, 'depende');
   _renderVertPie(c2, cfg.pie2.issues, source, 'fila');
+  const listEl = document.getElementById(source + '-listagem');
+  if (!listIssues.length) {
+    listEl.innerHTML = '<p style="text-align:center;color:#94A3B8;padding:24px">Nenhum chamado para o filtro selecionado.</p>';
+  } else {
+    _renderIssuesPorVertical(listEl, listIssues, `📋 Listagem — ${listLabel}`);
+  }
 }
 
 function renderChamadosSuporte() {
