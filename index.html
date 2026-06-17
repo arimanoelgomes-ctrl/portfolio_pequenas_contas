@@ -527,18 +527,9 @@
 
     <!-- View: Chamados de Serviço (pos 1) -->
     <div class="view" id="view-0">
-      <div class="view-title">Chamados em Aberto por Cliente</div>
-      <div class="view-subtitle">Total de chamados abertos por município • Fonte: Jira</div>
-      <div id="servico-depende-content" style="margin-top:8px"></div>
-      <div id="view0-content"></div>
-      <div style="margin-top:36px;padding-top:28px;border-top:2px solid #E2E8F0">
-        <div id="atendimento-content"></div>
-      </div>
-      <div style="margin-top:36px;padding-top:28px;border-top:2px solid #E2E8F0">
-        <div class="view-title" style="font-size:1.1rem;margin-bottom:4px">Chamados por Vertical</div>
-        <div class="view-subtitle">Distribuição de chamados por vertical dentro de cada município • Fonte: Jira</div>
-        <div id="view1-content"></div>
-      </div>
+      <div class="view-title">Chamados de Serviço</div>
+      <div class="view-subtitle">Monitoramento de SLO de Atendimento • Fonte: Jira</div>
+      <div id="servico-content" style="margin-top:8px"></div>
     </div>
 
     <!-- View: Implantações (pos 2) -->
@@ -1204,7 +1195,7 @@ function renderActiveView() { renderView(activeTab); }
 
 function renderView(idx) {
   switch(idx) {
-    case 0: renderDependeTime('servico-depende-content', state.chamadosIssues); renderChamadosPorCliente(); renderChamadosPorVertical(); renderChamadosAtendimento(); break;
+    case 0: renderChamadosServico(); break;
     case 6: renderChamadosSuporte(); break;
     case 1: renderImplantacoes(); break;
     case 2: renderRisco(); break;
@@ -1849,150 +1840,196 @@ function renderChamadosAtendimento() {
 // ============================================================
 // VIEW 6 — Chamados de Suporte (Suporte + Residente)
 // ============================================================
+// ============================================================
+// VISÃO INTERATIVA DE CHAMADOS (Suporte / Serviço)
+// 2 pizzas por vertical (selecionáveis) + 1 listagem plana filtrável
+// ============================================================
+const VERT_PIE_COLORS = ['#2B6CB0','#DD6B20','#38A169','#805AD5','#D69E2E','#0987A0','#C53030','#3182CE','#9F7AEA','#48BB78','#718096','#ED8936'];
+
+// Filtro ativo por guia: ds = 'depende' | 'fila' | null ; vert = string | null
+const _chFilter = { suporte: { ds: null, vert: null }, servico: { ds: null, vert: null } };
+
+// Configuração de cada guia (pools de chamados por conjunto)
+function _chamadosCfg(source) {
+  if (source === 'suporte') {
+    const all = state.suporteIssues || [];
+    return {
+      source, all, summary: state.suporte || [],
+      pie1: { key:'depende', label:'Dependendo de Ação do Time', color:'#4338CA', issues: all.filter(dependeDoTime) },
+      pie2: { key:'fila',    label:'Aguardando Triagem × SLO',   color:'#B45309', issues: all.filter(r => (r.status||'').toLowerCase().includes('triagem')) },
+      filaLabel: 'Aguard. Triagem', filaSloLabel: 'Triagem c/ SLO Estourado'
+    };
+  }
+  const all = state.chamadosIssues || [];
+  return {
+    source, all, summary: state.jira || [],
+    pie1: { key:'depende', label:'Dependendo de Ação do Time', color:'#4338CA', issues: all.filter(dependeDoTime) },
+    pie2: { key:'fila',    label:'Aguardando Atendimento × SLO', color:'#0E7490', issues: all.filter(r => (r.status||'').toLowerCase().includes('atendimento')) },
+    filaLabel: 'Aguard. Atendimento', filaSloLabel: 'Atendimento c/ SLO Estourado'
+  };
+}
+
+// Lista filtrada conforme seleção (vertical + conjunto da pizza)
+function _chamadosFiltered(cfg) {
+  const cur = _chFilter[cfg.source];
+  let arr;
+  if (!cur.vert) arr = cfg.all;
+  else {
+    const ds = cur.ds === 'depende' ? cfg.pie1.issues : cfg.pie2.issues;
+    arr = ds.filter(r => (r.vertical || 'Não informado') === cur.vert);
+  }
+  return [...arr].sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
+}
+
+// Tabela plana — mesmas colunas das listagens de SLO (Código, Município, Responsável, SLO, Status)
+function _buildFlatChamadosTable(issues) {
+  if (!issues.length) {
+    return '<p style="text-align:center;color:#94A3B8;padding:24px">Nenhum chamado para o filtro selecionado.</p>';
+  }
+  const rows = issues.map((r, i) => _buildIssueRow(r, i)).join('');
+  return `<div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    <table style="width:100%;border-collapse:collapse;font-family:inherit;font-size:.82rem">
+      <thead><tr style="background:#1E3A5F;color:#fff">
+        <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap">Código</th>
+        <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Município</th>
+        <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Responsável</th>
+        <th style="padding:8px 12px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap">SLO</th>
+        <th style="padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600">Status</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+// Pizza por vertical, com clique para filtrar a listagem
+function _renderVertPie(canvasId, issues, source, dsKey) {
+  destroyChart(canvasId);
+  const cont = document.getElementById(canvasId);
+  if (!cont) return;
+  const agg = {};
+  issues.forEach(r => { const v = r.vertical || 'Não informado'; agg[v] = (agg[v] || 0) + 1; });
+  const labels = Object.keys(agg).sort((a, b) => agg[b] - agg[a]);
+  const data   = labels.map(l => agg[l]);
+  const total  = data.reduce((sm, n) => sm + n, 0);
+  if (!total) {
+    if (cont.parentElement) cont.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94A3B8;font-size:.82rem">Nenhum chamado</div>';
+    return;
+  }
+  const colors  = labels.map((_, i) => VERT_PIE_COLORS[i % VERT_PIE_COLORS.length]);
+  const cur     = _chFilter[source];
+  const offsets = labels.map(l => (cur.ds === dsKey && cur.vert === l) ? 18 : 0);
+  charts[canvasId] = new Chart(cont, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#fff', offset: offsets, hoverOffset: 18 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '56%',
+      onClick: (e, els) => { if (els.length) _toggleChamadosFilter(source, dsKey, labels[els[0].index]); },
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10, padding: 8 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} (${Math.round(ctx.parsed / total * 100)}%) — clique p/ filtrar` } }
+      }
+    },
+    plugins: [{
+      id: 'ct-' + canvasId,
+      afterDraw(chart) {
+        const { ctx, chartArea: { width, height, left, top } } = chart;
+        ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const cx = left + width / 2, cy = top + height / 2;
+        ctx.font = 'bold 22px system-ui'; ctx.fillStyle = '#1A202C'; ctx.fillText(total, cx, cy - 6);
+        ctx.font = '10px system-ui'; ctx.fillStyle = '#718096'; ctx.fillText('chamados', cx, cy + 11);
+        ctx.restore();
+      }
+    }]
+  });
+}
+
+function _toggleChamadosFilter(source, dsKey, vert) {
+  const cur = _chFilter[source];
+  if (cur.ds === dsKey && cur.vert === vert) { cur.ds = null; cur.vert = null; }
+  else { cur.ds = dsKey; cur.vert = vert; }
+  source === 'suporte' ? renderChamadosSuporte() : renderChamadosServico();
+}
+function _clearChamadosFilter(source) {
+  _chFilter[source] = { ds: null, vert: null };
+  source === 'suporte' ? renderChamadosSuporte() : renderChamadosServico();
+}
+
+// Núcleo: KPIs + 2 pizzas + listagem filtrável
+function _renderChamadosTab(source, container) {
+  const cfg = _chamadosCfg(source);
+  const cur = _chFilter[source];
+  const sum = (rows, f) => rows.reduce((sm, r) => sm + (parseInt(r[f]) || 0), 0);
+
+  const totalAbertos = sum(cfg.summary, 'total_chamados');
+  const sloEstour    = sum(cfg.summary, 'slo_estourado');
+  const filaCount    = cfg.pie2.issues.length;
+  const filaSlo      = cfg.pie2.issues.filter(r => (r.slo_horas || '').startsWith('-')).length;
+
+  const kpi = (val, label, bg, bd, fg, lc) => `
+    <div style="background:${bg};border:1px solid ${bd};border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+      <div style="font-size:2rem;font-weight:700;color:${fg};line-height:1">${val}</div>
+      <div style="font-size:.68rem;font-weight:600;color:${lc};text-transform:uppercase;margin-top:4px">${label}</div>
+    </div>`;
+  const kpiHtml = `<div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+    ${kpi(totalAbertos, 'Total em Aberto', '#EFF6FF', '#BFDBFE', '#2563EB', '#3B82F6')}
+    ${kpi(sloEstour, 'SLO Estourado', sloEstour > 0 ? '#FEF2F2' : '#F0FDF4', sloEstour > 0 ? '#FECACA' : '#86EFAC', sloEstour > 0 ? '#DC2626' : '#15803D', sloEstour > 0 ? '#EF4444' : '#16A34A')}
+    ${kpi(filaCount, cfg.filaLabel, '#FFFBEB', '#FDE68A', '#B45309', '#D97706')}
+    ${kpi(filaSlo, cfg.filaSloLabel, filaSlo > 0 ? '#FEF2F2' : '#F8FAFC', filaSlo > 0 ? '#FECACA' : '#E2E8F0', filaSlo > 0 ? '#DC2626' : '#64748B', filaSlo > 0 ? '#EF4444' : '#94A3B8')}
+  </div>`;
+
+  const c1 = source + '-pie-depende', c2 = source + '-pie-fila';
+  const piesHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px">
+        <div style="font-size:.85rem;font-weight:700;color:${cfg.pie1.color};margin-bottom:8px;display:flex;align-items:center;gap:6px">👥 ${cfg.pie1.label} <span style="font-size:.72rem;font-weight:600;color:#718096">${cfg.pie1.issues.length}</span></div>
+        <div style="position:relative;height:300px"><canvas id="${c1}"></canvas></div>
+      </div>
+      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px">
+        <div style="font-size:.85rem;font-weight:700;color:${cfg.pie2.color};margin-bottom:8px;display:flex;align-items:center;gap:6px">⏳ ${cfg.pie2.label} <span style="font-size:.72rem;font-weight:600;color:#718096">${cfg.pie2.issues.length}</span></div>
+        <div style="position:relative;height:300px"><canvas id="${c2}"></canvas></div>
+      </div>
+    </div>`;
+
+  const filtroBar = cur.vert
+    ? `<div style="display:flex;align-items:center;gap:10px;margin:18px 0 12px;flex-wrap:wrap">
+         <span style="font-size:.78rem;color:#475569">Filtro ativo:</span>
+         <span style="font-size:.78rem;font-weight:700;padding:3px 12px;border-radius:14px;background:#E0E7FF;color:#3730A3;border:1px solid #C7D2FE">${(cur.ds === 'depende' ? cfg.pie1.label : cfg.pie2.label)} · ${cur.vert}</span>
+         <button onclick="_clearChamadosFilter('${source}')" style="font-size:.74rem;font-weight:600;padding:3px 12px;border-radius:14px;border:1px solid #CBD5E0;background:#fff;color:#475569;cursor:pointer">✕ Limpar filtro</button>
+       </div>`
+    : `<div style="font-size:.74rem;color:#94A3B8;margin:18px 0 12px;font-style:italic">💡 Clique numa fatia dos gráficos para filtrar a listagem por vertical. Clique novamente para limpar.</div>`;
+
+  const listIssues = _chamadosFiltered(cfg);
+  const listTitle  = cur.vert ? `${(cur.ds === 'depende' ? cfg.pie1.label : cfg.pie2.label)} · ${cur.vert}` : 'Todos os chamados em aberto';
+  const listHtml = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:.9rem;font-weight:700;color:#1E3A5F">📋 Listagem — ${listTitle}</span>
+      <span style="font-size:.74rem;color:#718096">${listIssues.length} chamado(s) — ordenado por SLO mais crítico</span>
+    </div>
+    ${_buildFlatChamadosTable(listIssues)}`;
+
+  container.innerHTML = kpiHtml + piesHtml + filtroBar + listHtml;
+  _renderVertPie(c1, cfg.pie1.issues, source, 'depende');
+  _renderVertPie(c2, cfg.pie2.issues, source, 'fila');
+}
+
 function renderChamadosSuporte() {
   const container = document.getElementById('suporte-content');
   if (!container) return;
-
-  if (!state.suporte.length && !state.suporteIssues.length) {
+  if (!(state.suporte || []).length && !(state.suporteIssues || []).length) {
     unavailable(container, 'Dados de Chamados de Suporte indisponíveis. Execute o Apps Script para popular a aba Jira_Chamados_Suporte.');
     return;
   }
+  _renderChamadosTab('suporte', container);
+}
 
-  // ── Agregações ──────────────────────────────────────────────
-  const munMap = {}, sloMap = {};
-  state.suporte.forEach(r => {
-    const m = r.municipio || 'Não informado';
-    const v = r.vertical  || 'Não informado';
-    if (!munMap[m]) munMap[m] = { total: 0 };
-    if (!sloMap[m]) sloMap[m] = {};
-    const n   = parseInt(r.total_chamados) || 0;
-    const slo = parseInt(r.slo_estourado)  || 0;
-    munMap[m][v] = (munMap[m][v] || 0) + n;
-    munMap[m].total += n;
-    sloMap[m][v] = (sloMap[m][v] || 0) + slo;
-  });
-
-  const totalAbertos   = Object.values(munMap).reduce((s, m) => s + m.total, 0);
-  const totalSloEstour = state.suporte.reduce((s, r) => s + (parseInt(r.slo_estourado) || 0), 0);
-
-  // Triagem: issues cujo status contém "triagem" (case-insensitive)
-  const triagem = state.suporteIssues
-    .filter(r => (r.status || '').toLowerCase().includes('triagem'))
-    .sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
-  const totalTriagem       = triagem.length;
-  const triagemSloEstourado = triagem.filter(r => (r.slo_horas || '').startsWith('-')).length;
-
-  // ── KPI Cards ───────────────────────────────────────────────
-  const kpiHtml = `
-    <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
-      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:2rem;font-weight:700;color:#2563EB;line-height:1">${totalAbertos}</div>
-        <div style="font-size:.68rem;font-weight:600;color:#3B82F6;text-transform:uppercase;margin-top:4px">Total em Aberto</div>
-      </div>
-      <div style="background:${totalSloEstour > 0 ? '#FEF2F2' : '#F0FDF4'};border:1px solid ${totalSloEstour > 0 ? '#FECACA' : '#86EFAC'};border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:2rem;font-weight:700;color:${totalSloEstour > 0 ? '#DC2626' : '#15803D'};line-height:1">${totalSloEstour}</div>
-        <div style="font-size:.68rem;font-weight:600;color:${totalSloEstour > 0 ? '#EF4444' : '#16A34A'};text-transform:uppercase;margin-top:4px">SLO Estourado</div>
-      </div>
-      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:2rem;font-weight:700;color:#B45309;line-height:1">${totalTriagem}</div>
-        <div style="font-size:.68rem;font-weight:600;color:#D97706;text-transform:uppercase;margin-top:4px">Aguard. Triagem</div>
-      </div>
-      <div style="background:${triagemSloEstourado > 0 ? '#FEF2F2' : '#F8FAFC'};border:1px solid ${triagemSloEstourado > 0 ? '#FECACA' : '#E2E8F0'};border-radius:8px;padding:12px 20px;text-align:center;min-width:130px">
-        <div style="font-size:2rem;font-weight:700;color:${triagemSloEstourado > 0 ? '#DC2626' : '#64748B'};line-height:1">${triagemSloEstourado}</div>
-        <div style="font-size:.68rem;font-weight:600;color:${triagemSloEstourado > 0 ? '#EF4444' : '#94A3B8'};text-transform:uppercase;margin-top:4px">Triagem c/ SLO Estourado</div>
-      </div>
-    </div>`;
-
-  // ── Seção: Aguardando Triagem × SLO — renderizada via helper após montar o DOM ─
-
-  // ── Tabela por Vertical ──────────────────────────────────────
-  const verticais  = [...new Set(state.suporte.map(r => r.vertical || 'Não informado'))].sort();
-  const municipios = Object.entries(munMap)
-    .sort((a, b) => b[1].total - a[1].total).map(e => e[0]);
-  const totalGeral = municipios.reduce((s, m) => s + munMap[m].total, 0);
-
-  const thStyle = `padding:8px 8px;text-align:center;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
-  const thFirst = `padding:8px 12px;text-align:left;font-size:.72rem;font-weight:600;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15)`;
-  const cb      = `padding:5px 8px;text-align:center;font-size:.8rem;border-right:1px solid #EDF2F7`;
-
-  const headerCells = verticais.map(v =>
-    `<th style="${thStyle}" title="${v}">${v.length > 9 ? v.slice(0,8)+'…' : v}</th>`).join('');
-
-  const footTotais = {};
-  verticais.forEach(v => {
-    footTotais[v] = { total: 0, slo: 0 };
-    municipios.forEach(m => { footTotais[v].total += munMap[m][v] || 0; footTotais[v].slo += (sloMap[m] && sloMap[m][v]) || 0; });
-  });
-
-  const bodyRows = municipios.map((m, ri) => {
-    const bg = ri % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
-    const cells = verticais.map(v => {
-      const val      = munMap[m][v] || 0;
-      const slo      = (sloMap[m] && sloMap[m][v]) || 0;
-      const munAttr  = m.replace(/"/g,'&quot;');
-      const vertAttr = v.replace(/"/g,'&quot;');
-      if (!val) return `<td style="${cb};color:#CBD5E0">—</td>`;
-      const bg2    = slo > 0 ? '#FEE2E2' : '#EFF6FF';
-      const color  = slo > 0 ? '#B91C1C' : '#2563EB';
-      const border = slo > 0 ? '#FECACA' : '#BFDBFE';
-      return `<td style="${cb};background:${bg2};color:${color};font-weight:600;border:1px solid ${border};cursor:pointer"
-                data-mun="${munAttr}" data-vert="${vertAttr}"
-                onclick="openChamadosModal(this,'suporte')"
-                title="${slo > 0 ? munAttr+' · '+vertAttr+' — '+slo+' com SLO estourado' : 'Ver chamados: '+munAttr+' · '+vertAttr}">${val}</td>`;
-    }).join('');
-    const totalCor = ((sloMap[m] && Object.values(sloMap[m]).some(s => s > 0)) ? '#B91C1C' : '#1E3A5F');
-    return `<tr style="background:${bg};border-bottom:1px solid #EDF2F7">
-      <td style="padding:6px 12px;font-size:.8rem;font-weight:600;white-space:nowrap;border-right:1px solid #EDF2F7">${m}</td>
-      ${cells}
-      <td style="padding:6px 8px;text-align:center;font-size:.8rem;font-weight:700;border-left:1px solid #CBD5E0;color:${totalCor}">${munMap[m].total}</td>
-    </tr>`;
-  }).join('');
-
-  const tdFootS = `padding:6px 8px;text-align:center;font-size:.78rem;border-right:1px solid #CBD5E0;cursor:pointer`;
-  const footCells = verticais.map(v => {
-    const f     = footTotais[v];
-    const vAttr = v.replace(/'/g, "\\'");
-    if (!f.total) return `<td style="${tdFootS};color:#94A3B8;background:#EDF2F7">—</td>`;
-    const cor = f.slo > 0 ? '#B91C1C' : '#2563EB';
-    return `<td style="${tdFootS};font-weight:700;color:${cor};background:#EDF2F7" title="Ver lista · ${f.total} chamados" onclick="openChamadosTotalModal('suporte','${vAttr}')">${f.total}</td>`;
-  }).join('');
-
-  const legendaHtml = `
-    <div style="display:flex;gap:16px;margin-top:12px;font-size:.73rem;color:var(--text-muted);flex-wrap:wrap;align-items:center">
-      <strong style="color:var(--text)">Legenda:</strong>
-      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FEE2E2;border:1px solid #FECACA"></span> Com SLO estourado</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span> Sem SLO estourado</span>
-      <span style="color:#94A3B8;font-style:italic">Clique na célula ou nos totais para ver os chamados</span>
-    </div>`;
-
-  container.innerHTML = kpiHtml + `<div id="suporte-depende-content"></div>` + `<div id="suporte-triagem-content" style="margin-bottom:24px"></div>` + `
-    <div style="font-size:.9rem;font-weight:700;color:#1E3A5F;margin-bottom:8px">📊 Chamados por Vertical</div>
-    <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
-      <table style="width:100%;border-collapse:collapse;font-family:inherit">
-        <thead><tr style="background:#1E3A5F;color:#fff">
-          <th style="${thFirst}">Município</th>
-          ${headerCells}
-          <th style="${thStyle}">T</th>
-        </tr></thead>
-        <tbody>${bodyRows}</tbody>
-        <tfoot><tr style="background:#EDF2F7;border-top:2px solid #CBD5E0">
-          <td style="padding:6px 12px;font-size:.78rem;font-weight:700;color:#2D3748;border-right:1px solid #CBD5E0">TOTAL</td>
-          ${footCells}
-          <td style="padding:6px 8px;text-align:center;font-size:.78rem;font-weight:700;color:#1E3A5F;background:#E2E8F0;cursor:pointer" title="Ver lista completa · ${totalGeral} chamados" onclick="openChamadosTotalModal('suporte','__all__')">${totalGeral}</td>
-        </tr></tfoot>
-      </table>
-    </div>
-    ${legendaHtml}`;
-
-  // Destaque: chamados dependendo de ação do time (topo, abaixo dos KPIs)
-  renderDependeTime('suporte-depende-content', state.suporteIssues);
-
-  // Renderiza tabelas de triagem por vertical no placeholder já no DOM
-  _renderIssuesPorVertical(
-    document.getElementById('suporte-triagem-content'),
-    triagem,
-    '⏳ Aguardando Triagem × SLO'
-  );
+function renderChamadosServico() {
+  const container = document.getElementById('servico-content');
+  if (!container) return;
+  if (!(state.jira || []).length && !(state.chamadosIssues || []).length) {
+    unavailable(container, 'Dados de Chamados de Serviço indisponíveis. Verifique se a planilha está publicada.');
+    return;
+  }
+  _renderChamadosTab('servico', container);
 }
 
 // ============================================================
