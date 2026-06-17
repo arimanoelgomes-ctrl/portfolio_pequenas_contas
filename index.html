@@ -467,6 +467,11 @@
       <div class="kpi-value" id="kpi-chamados">—</div>
       <div class="kpi-sub" id="kpi-chamados-sub">Carregando…</div>
     </div>
+    <div class="kpi-card" style="border-top-color:#4338CA;cursor:pointer" onclick="switchTab(6)" title="Ver chamados que dependem de ação do time de atendimento e serviços">
+      <div class="kpi-label">Dependendo do Time</div>
+      <div class="kpi-value" id="kpi-depende" style="color:#4338CA">—</div>
+      <div class="kpi-sub" id="kpi-depende-sub">Carregando…</div>
+    </div>
     <div class="kpi-card green">
       <div class="kpi-label">CND Estadual</div>
       <div class="kpi-value" id="kpi-cnd-est">—</div>
@@ -1045,6 +1050,20 @@ function updateKPIs() {
   document.getElementById('kpi-chamados').textContent = totalChamados || '—';
   document.getElementById('kpi-chamados-sub').textContent =
     _allChamados.length ? `Em ${municipiosJira.length} municípios` : 'Dados indisponíveis';
+
+  // Dependendo de ação do time (Suporte + Serviço) — contagem por chamado
+  const _depSup   = state.suporteIssues.filter(dependeDoTime);
+  const _depSrv   = state.chamadosIssues.filter(dependeDoTime);
+  const _depTotal = _depSup.length + _depSrv.length;
+  const _depSlo   = [..._depSup, ..._depSrv].filter(r => (r.slo_horas || '').startsWith('-')).length;
+  const _temIssues = state.suporteIssues.length || state.chamadosIssues.length;
+  const elDep = document.getElementById('kpi-depende');
+  if (elDep) {
+    elDep.textContent = _temIssues ? _depTotal : '—';
+    document.getElementById('kpi-depende-sub').textContent = _temIssues
+      ? `Suporte ${_depSup.length} · Serviço ${_depSrv.length}` + (_depSlo ? ` · ${_depSlo} c/ SLO estourado` : '')
+      : 'Dados indisponíveis';
+  }
 
   // CND Estadual — conta por MUNICÍPIO no período atual
   if (state.cndEstadual.length) {
