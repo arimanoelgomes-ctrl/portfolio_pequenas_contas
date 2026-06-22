@@ -506,9 +506,9 @@
 
   <!-- Tab Navigation -->
   <div class="tab-nav">
-    <button class="tab-btn active" onclick="switchTab(6)">🎯 Chamados de Suporte</button>
+    <button class="tab-btn active" onclick="switchTab(8)">🏢 Chamados por Cliente</button>
+    <button class="tab-btn" onclick="switchTab(6)">🎯 Chamados de Suporte</button>
     <button class="tab-btn" onclick="switchTab(0)">📊 Chamados de Serviço</button>
-    <button class="tab-btn" onclick="switchTab(8)">🏢 Chamados por Cliente</button>
     <button class="tab-btn" onclick="switchTab(1)">🔧 Implantações</button>
     <button class="tab-btn" onclick="switchTab(2)">⚠️ Risco de Churn</button>
     <button class="tab-btn" onclick="switchTab(3)">⭐ NPS</button>
@@ -519,8 +519,16 @@
   <!-- Chart Panel -->
   <div class="chart-panel">
 
-    <!-- View: Chamados de Suporte (default) -->
-    <div class="view active" id="view-suporte">
+    <!-- View: Chamados por Cliente (pos 8) — PRIMEIRA guia, filtro por Município/Entidade/Vertical/Status -->
+    <div class="view active" id="view-cliente">
+      <div class="view-title">Chamados Abertos por Cliente</div>
+      <div class="view-subtitle">Filtre por município, entidade, vertical e status • Fonte: Jira (Suporte + Serviço)</div>
+      <div id="cliente-filtros" style="margin-top:12px"></div>
+      <div id="cliente-content" style="margin-top:8px"></div>
+    </div>
+
+    <!-- View: Chamados de Suporte -->
+    <div class="view" id="view-suporte">
       <div class="view-title">Chamados de Suporte</div>
       <div class="view-subtitle">Equipes Suporte e Residente — monitoramento de SLO de Atendimento • Fonte: Jira</div>
       <div id="suporte-content" style="margin-top:8px"></div>
@@ -531,14 +539,6 @@
       <div class="view-title">Chamados de Serviço</div>
       <div class="view-subtitle">Monitoramento de SLO de Atendimento • Fonte: Jira</div>
       <div id="servico-content" style="margin-top:8px"></div>
-    </div>
-
-    <!-- View: Chamados por Cliente (pos 8) — filtro por Município/Entidade/Vertical/Status -->
-    <div class="view" id="view-cliente">
-      <div class="view-title">Chamados Abertos por Cliente</div>
-      <div class="view-subtitle">Filtre por município, entidade, vertical e status • Fonte: Jira (Suporte + Serviço)</div>
-      <div id="cliente-filtros" style="margin-top:12px"></div>
-      <div id="cliente-content" style="margin-top:8px"></div>
     </div>
 
     <!-- View: Implantações (pos 2) -->
@@ -733,7 +733,7 @@ const PORTFOLIO_SET = {};
 PORTFOLIO_MUNICIPIOS.forEach(m => { PORTFOLIO_SET[normMun(m)] = m; });
 
 const charts = {};
-let activeTab = 6;
+let activeTab = 8;
 
 // ============================================================
 // PALETA DE CORES
@@ -1192,10 +1192,10 @@ function switchTab(idx) {
     document.getElementById(viewId)?.classList.add('active');
   } else {
     // Fallback: posição DOM (para NPS=3, CND=4, Colaboradores=5)
-    const domIdx = [6,0,8,1,2,3,4,5].indexOf(idx); // ordem das tabs no nav
+    const domIdx = [8,6,0,1,2,3,4,5].indexOf(idx); // ordem das tabs no nav (= ordem das views no DOM)
     document.querySelectorAll('.view')[domIdx]?.classList.add('active');
   }
-  document.querySelectorAll('.tab-btn')[([6,0,8,1,2,3,4,5].indexOf(idx))]?.classList.add('active');
+  document.querySelectorAll('.tab-btn')[([8,6,0,1,2,3,4,5].indexOf(idx))]?.classList.add('active');
   activeTab = idx;
   renderView(idx);
 }
@@ -2011,10 +2011,13 @@ function renderChamadosServico() {
 // ============================================================
 // VIEW 8 — Chamados Abertos por Cliente (filtro Município/Entidade/Vertical/Status)
 // ============================================================
-const _clienteFiltro = { fonte: 'todos', municipio: '', entidade: '', vertical: '', status: '' };
+// Filtros de multi-seleção: cada campo é um Set (vazio = "todos")
+const _clienteFiltro = { fonte: new Set(), municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() };
+let _clienteAberto = null;        // campo do dropdown atualmente aberto
 let _clienteListaAtual = [];
+let _clienteOutsideBound = false; // garante 1 só listener de clique-fora
 
-// Escape p/ uso seguro em atributos value de <option>
+// Escape p/ uso seguro em atributos HTML
 function _escAttr(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -2028,19 +2031,30 @@ function _clientePool() {
   return [...sup, ...srv];
 }
 
-function _setClienteFiltro(campo, valor) {
-  _clienteFiltro[campo] = valor;
-  // Ao trocar a fonte ou o município, limpa a entidade (pode não existir mais)
-  if (campo === 'fonte' || campo === 'municipio') _clienteFiltro.entidade = '';
+// Abre/fecha o dropdown de um campo
+function _clienteToggleDrop(campo) {
+  _clienteAberto = (_clienteAberto === campo) ? null : campo;
+  renderChamadosPorClienteFiltro();
+}
+
+// Marca/desmarca um valor (multi-seleção)
+function _clienteToggleVal(campo, valor) {
+  const set = _clienteFiltro[campo];
+  if (set.has(valor)) set.delete(valor); else set.add(valor);
+  // Trocar fonte/município pode invalidar entidades já marcadas
+  if (campo === 'fonte' || campo === 'municipio') _clienteFiltro.entidade.clear();
+  renderChamadosPorClienteFiltro();
+}
+
+function _clienteLimparCampo(campo) {
+  _clienteFiltro[campo].clear();
+  if (campo === 'fonte' || campo === 'municipio') _clienteFiltro.entidade.clear();
   renderChamadosPorClienteFiltro();
 }
 
 function _limparClienteFiltro() {
-  _clienteFiltro.fonte = 'todos';
-  _clienteFiltro.municipio = '';
-  _clienteFiltro.entidade = '';
-  _clienteFiltro.vertical = '';
-  _clienteFiltro.status = '';
+  Object.values(_clienteFiltro).forEach(s => s.clear());
+  _clienteAberto = null;
   renderChamadosPorClienteFiltro();
 }
 
@@ -2049,23 +2063,51 @@ function _uniqSort(arr) {
     .sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'));
 }
 
-function _selectHtml(campo, label, opcoes, valorAtual, labelTodos) {
-  const opts = [`<option value="">${labelTodos}</option>`]
-    .concat(opcoes.map(o => `<option value="${_escAttr(o)}"${o === valorAtual ? ' selected' : ''}>${_escAttr(o)}</option>`))
-    .join('');
-  return `<label style="display:flex;flex-direction:column;gap:3px;font-size:.7rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.02em">
-      ${label}
-      <select onchange="_setClienteFiltro('${campo}', this.value)"
-        style="min-width:170px;max-width:260px;padding:7px 10px;border:1px solid #CBD5E0;border-radius:7px;background:#fff;font-size:.82rem;font-weight:500;color:#1A202C;font-family:inherit;cursor:pointer">
-        ${opts}
-      </select>
-    </label>`;
+// Fecha o dropdown ao clicar fora dele
+function _clienteBindOutside() {
+  if (_clienteOutsideBound) return;
+  _clienteOutsideBound = true;
+  document.addEventListener('click', (e) => {
+    if (_clienteAberto && !(e.target.closest && e.target.closest('.cliente-drop'))) {
+      _clienteAberto = null;
+      renderChamadosPorClienteFiltro();
+    }
+  });
+}
+
+// Dropdown de multi-seleção com checkboxes
+function _multiDrop(campo, label, opcoes, selSet, labelTodos) {
+  const n      = selSet.size;
+  const aberto = _clienteAberto === campo;
+  const resumo = n === 0 ? labelTodos : (n === 1 ? [...selSet][0] : `${n} selecionados`);
+  const checks = opcoes.length
+    ? opcoes.map(o => `<label style="display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:.82rem;font-weight:500;color:#1A202C;cursor:pointer;border-radius:5px"
+          onmouseover="this.style.background='#F1F5F9'" onmouseout="this.style.background='transparent'">
+          <input type="checkbox" value="${_escAttr(o)}"${selSet.has(o) ? ' checked' : ''} onchange="_clienteToggleVal('${campo}', this.value)" style="cursor:pointer;width:15px;height:15px;flex:none">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escAttr(o)}</span>
+        </label>`).join('')
+    : '<div style="padding:8px 10px;font-size:.8rem;color:#94A3B8">Nenhuma opção</div>';
+  const painel = aberto ? `
+      <div style="position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:240px;max-width:340px;max-height:300px;overflow-y:auto;background:#fff;border:1px solid #CBD5E0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.14);padding:6px">
+        ${n > 0 ? `<div style="padding:4px 10px 6px;border-bottom:1px solid #EDF2F7;margin-bottom:4px"><button onclick="_clienteLimparCampo('${campo}')" style="font-size:.72rem;font-weight:600;color:#2563EB;background:none;border:none;cursor:pointer;padding:0">Limpar seleção (${n})</button></div>` : ''}
+        ${checks}
+      </div>` : '';
+  return `<div class="cliente-drop" style="position:relative;display:flex;flex-direction:column;gap:3px">
+      <span style="font-size:.7rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.02em">${label}</span>
+      <button type="button" onclick="_clienteToggleDrop('${campo}')"
+        style="min-width:170px;max-width:260px;padding:7px 10px;border:1px solid ${n > 0 ? '#2B6CB0' : '#CBD5E0'};border-radius:7px;background:${n > 0 ? '#EBF4FF' : '#fff'};font-size:.82rem;font-weight:500;color:#1A202C;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escAttr(resumo)}</span>
+        <span style="flex:none;color:#718096;font-size:.7rem">${aberto ? '▲' : '▼'}</span>
+      </button>
+      ${painel}
+    </div>`;
 }
 
 function renderChamadosPorClienteFiltro() {
   const filtrosEl = document.getElementById('cliente-filtros');
   const contentEl = document.getElementById('cliente-content');
   if (!filtrosEl || !contentEl) return;
+  _clienteBindOutside();
 
   const pool = _clientePool();
   if (!pool.length) {
@@ -2075,11 +2117,13 @@ function renderChamadosPorClienteFiltro() {
   }
 
   const f = _clienteFiltro;
+  const inSet = (set, val) => set.size === 0 || set.has(val); // Set vazio = sem filtro
 
-  // Base para as opções: filtra pela fonte selecionada
-  const base = pool.filter(r => f.fonte === 'todos' || r._fonte === f.fonte);
-  const baseMun = f.municipio ? base.filter(r => (r.municipio || '') === f.municipio) : base;
+  // Base para as opções: aplica a fonte (e o município, para a cascata de entidade)
+  const base    = pool.filter(r => inSet(f.fonte, r._fonte));
+  const baseMun = f.municipio.size ? base.filter(r => f.municipio.has(r.municipio || '')) : base;
 
+  const fonteOpts  = ['Suporte', 'Serviço'];
   const municipios = _uniqSort(base.map(r => r.municipio));
   const entidades  = _uniqSort(baseMun.map(r => r.entidade));
   const verticais  = _uniqSort(base.map(r => r.vertical));
@@ -2088,40 +2132,30 @@ function renderChamadosPorClienteFiltro() {
   // Aviso caso a base de dados ainda não tenha a coluna 'entidade' preenchida
   const semEntidade = base.every(r => !r.entidade || !String(r.entidade).trim());
 
-  // Barra de filtros
-  const fonteSel = `<label style="display:flex;flex-direction:column;gap:3px;font-size:.7rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.02em">
-      Fonte
-      <select onchange="_setClienteFiltro('fonte', this.value)"
-        style="min-width:150px;padding:7px 10px;border:1px solid #CBD5E0;border-radius:7px;background:#fff;font-size:.82rem;font-weight:500;color:#1A202C;font-family:inherit;cursor:pointer">
-        <option value="todos"${f.fonte === 'todos' ? ' selected' : ''}>Todos (Suporte + Serviço)</option>
-        <option value="Suporte"${f.fonte === 'Suporte' ? ' selected' : ''}>Somente Suporte</option>
-        <option value="Serviço"${f.fonte === 'Serviço' ? ' selected' : ''}>Somente Serviço</option>
-      </select>
-    </label>`;
-
   filtrosEl.innerHTML = `
     <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px">
       <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
-        ${fonteSel}
-        ${_selectHtml('municipio', 'Município', municipios, f.municipio, 'Todos os municípios')}
-        ${_selectHtml('entidade', 'Entidade', entidades, f.entidade, 'Todas as entidades')}
-        ${_selectHtml('vertical', 'Vertical', verticais, f.vertical, 'Todas as verticais')}
-        ${_selectHtml('status', 'Status', statuses, f.status, 'Todos os status')}
+        ${_multiDrop('fonte', 'Fonte', fonteOpts, f.fonte, 'Todas as fontes')}
+        ${_multiDrop('municipio', 'Município', municipios, f.municipio, 'Todos os municípios')}
+        ${_multiDrop('entidade', 'Entidade', entidades, f.entidade, 'Todas as entidades')}
+        ${_multiDrop('vertical', 'Vertical', verticais, f.vertical, 'Todas as verticais')}
+        ${_multiDrop('status', 'Status', statuses, f.status, 'Todos os status')}
         <button onclick="_limparClienteFiltro()"
           style="padding:8px 14px;border:1px solid #CBD5E0;border-radius:7px;background:#fff;font-size:.78rem;font-weight:600;color:#475569;cursor:pointer;height:36px">✕ Limpar filtros</button>
         <button onclick="exportClienteCSV()"
           style="padding:8px 14px;border:1px solid #BFDBFE;border-radius:7px;background:#EFF6FF;font-size:.78rem;font-weight:600;color:#2563EB;cursor:pointer;height:36px">⬇ Exportar CSV</button>
       </div>
-      ${semEntidade ? '<div style="margin-top:10px;font-size:.74rem;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:6px 10px">⚠️ Os dados ainda não contêm a coluna <b>entidade</b>. Reexecute o Apps Script (onTimeTrigger) para popular esse campo nos chamados.</div>' : ''}
+      <div style="margin-top:8px;font-size:.72rem;color:#94A3B8;font-style:italic">💡 Você pode marcar mais de uma opção em cada filtro.</div>
+      ${semEntidade ? '<div style="margin-top:8px;font-size:.74rem;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:6px 10px">⚠️ Os dados ainda não contêm a coluna <b>entidade</b>. Reexecute o Apps Script (onTimeTrigger) para popular esse campo nos chamados.</div>' : ''}
     </div>`;
 
-  // Aplica os filtros
+  // Aplica os filtros (multi-seleção: Set vazio = todos)
   let lista = pool.filter(r =>
-    (f.fonte === 'todos' || r._fonte === f.fonte) &&
-    (!f.municipio || (r.municipio || '') === f.municipio) &&
-    (!f.entidade  || (r.entidade  || '') === f.entidade) &&
-    (!f.vertical  || (r.vertical  || '') === f.vertical) &&
-    (!f.status    || (r.status    || '') === f.status)
+    inSet(f.fonte,     r._fonte) &&
+    inSet(f.municipio, r.municipio || '') &&
+    inSet(f.entidade,  r.entidade  || '') &&
+    inSet(f.vertical,  r.vertical  || '') &&
+    inSet(f.status,    r.status    || '')
   ).sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
 
   _clienteListaAtual = lista;
