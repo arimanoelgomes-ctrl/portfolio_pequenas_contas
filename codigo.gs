@@ -111,6 +111,7 @@ const FIELD_MUNICIPIO        = 'customfield_10331'; // Município (string)
 const FIELD_VERTICAL         = 'customfield_10300'; // Vertical  ({ value: "Saúde" })
 const FIELD_PRAZO            = 'customfield_25801'; // Prazo contratual da implantação (date "YYYY-MM-DD")
 const FIELD_SLO_ATENDIMENTO  = 'customfield_24813'; // SLO Atendimento (objeto com ongoingCycle/completedCycles)
+const FIELD_ENTIDADE         = 'customfield_10202'; // Entidade (string, ex: "Prefeitura Municipal de X - X/SC")
 const SHEET_TAB_NAME            = 'Jira_Chamados';
 const CHAMADOS_ISSUES_TAB_NAME  = 'Jira_Chamados_Issues';
 const SUPORTE_TAB_NAME          = 'Jira_Chamados_Suporte';
@@ -880,7 +881,7 @@ function fetchJiraIssues(jql) {
 
   const sessionCookie = getJiraSession(baseUrl, email, password);
   const headers = { 'Cookie': sessionCookie, 'Accept': 'application/json', 'Content-Type': 'application/json' };
-  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, 'status', FIELD_SLO_ATENDIMENTO, 'assignee', 'issuetype'];
+  const fields  = ['summary', FIELD_MUNICIPIO, FIELD_VERTICAL, 'status', FIELD_SLO_ATENDIMENTO, 'assignee', 'issuetype', FIELD_ENTIDADE];
 
   const allIssues = [];
   let startAt = 0;
@@ -1041,10 +1042,11 @@ function writeJiraChamados(rows, issues, tabName, issuesTabName) {
     let issuesTab = ss.getSheetByName(issuesTabName);
     if (!issuesTab) { issuesTab = ss.insertSheet(issuesTabName); Logger.log(`  Aba "${issuesTabName}" criada.`); }
 
-    const issuesHeader = [['key','url','summary','status','municipio','vertical','slo_horas','responsavel','issuetype','atualizado_em']];
-    issuesTab.getRange(1, 1, 1, 10).setValues(issuesHeader);
+    // entidade adicionada ao FINAL do cabeçalho (retrocompatível — não desloca colunas existentes)
+    const issuesHeader = [['key','url','summary','status','municipio','vertical','slo_horas','responsavel','issuetype','atualizado_em','entidade']];
+    issuesTab.getRange(1, 1, 1, 11).setValues(issuesHeader);
     const lastIssue = issuesTab.getLastRow();
-    if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 10).clearContent();
+    if (lastIssue > 1) issuesTab.getRange(2, 1, lastIssue - 1, 11).clearContent();
 
     const issueRows = issues.map(issue => {
       const municipio    = (issue.fields[FIELD_MUNICIPIO] || 'Não informado').toString().trim();
@@ -1054,11 +1056,12 @@ function writeJiraChamados(rows, issues, tabName, issuesTabName) {
       const sloHoras     = _formatSloHoras(_getSloHoras(issue.fields[FIELD_SLO_ATENDIMENTO]));
       const responsavel  = (issue.fields.assignee && issue.fields.assignee.displayName) ? issue.fields.assignee.displayName : '';
       const issuetype    = (issue.fields.issuetype && issue.fields.issuetype.name) ? issue.fields.issuetype.name : '';
-      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, sloHoras, responsavel, issuetype, ts];
+      const entidade     = (issue.fields[FIELD_ENTIDADE] || '').toString().trim();
+      return [issue.key, `${baseUrl}/browse/${issue.key}`, issue.fields.summary || '', status, municipio, vertical, sloHoras, responsavel, issuetype, ts, entidade];
     }).sort((a, b) => a[4].localeCompare(b[4], 'pt-BR') || a[5].localeCompare(b[5], 'pt-BR'));
 
-    if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 10).setValues(issueRows);
-    const ih = issuesTab.getRange(1, 1, 1, 10);
+    if (issueRows.length > 0) issuesTab.getRange(2, 1, issueRows.length, 11).setValues(issueRows);
+    const ih = issuesTab.getRange(1, 1, 1, 11);
     ih.setBackground('#1E3A5F'); ih.setFontColor('#FFFFFF'); ih.setFontWeight('bold');
     issuesTab.setFrozenRows(1);
     Logger.log(`  "${issuesTabName}": ${issueRows.length} issues individuais gravados.`);
