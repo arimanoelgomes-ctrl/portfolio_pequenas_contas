@@ -1874,12 +1874,20 @@ function _chamadosCfg(source) {
 // Lista filtrada conforme seleção (vertical + conjunto da pizza)
 function _chamadosFiltered(cfg) {
   const cur = _chFilter[cfg.source];
+  const fs  = _chamFiltros[cfg.source];
+  const inSet = (set, val) => !set || set.size === 0 || set.has(val);
   let arr;
   if (!cur.ds || cur.verts.size === 0) arr = cfg.all;
   else {
     const ds = cur.ds === 'depende' ? cfg.pie1.issues : cur.ds === 'fila' ? cfg.pie2.issues : cfg.pie3.issues;
     arr = ds.filter(r => cur.verts.has(r.vertical || 'Não informado'));
   }
+  // Filtros multi-seleção (município / entidade / vertical / status)
+  arr = arr.filter(r =>
+    inSet(fs.municipio, r.municipio || '') &&
+    inSet(fs.entidade,  r.entidade  || '') &&
+    inSet(fs.vertical,  r.vertical  || '') &&
+    inSet(fs.status,    r.status    || ''));
   arr = _aplicaSloModo(arr, cur.slo);
   return [...arr].sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
 }
@@ -1960,6 +1968,7 @@ function _clearChamadosFilter(source) {
 
 // Núcleo: KPIs + 2 pizzas + listagem filtrável
 function _renderChamadosTab(source, container) {
+  _chamBindOutside();
   const cfg = _chamadosCfg(source);
   const cur = _chFilter[source];
   const sum = (rows, f) => rows.reduce((sm, r) => sm + (parseInt(r[f]) || 0), 0);
@@ -2011,7 +2020,28 @@ function _renderChamadosTab(source, container) {
   const listLabel  = (filterActive ? `${dsLabel} · ${[...cur.verts].join(', ')}` : 'Todos os chamados em aberto') + sloLabelTxt;
   const sloBar = `<div style="display:flex;align-items:center;margin:0 0 14px">${_sloSegHtml(cur.slo, '_setChamadosSlo', source)}</div>`;
 
-  container.innerHTML = kpiHtml + piesHtml + filtroBar + sloBar + `<div id="${source}-listagem"></div>`;
+  // Barra de filtros multi-seleção (Município / Entidade / Vertical / Status)
+  const fs = _chamFiltros[source];
+  const baseMun    = fs.municipio.size ? cfg.all.filter(r => fs.municipio.has(r.municipio || '')) : cfg.all;
+  const municipios = _uniqSort(cfg.all.map(r => r.municipio));
+  const entidades  = _uniqSort(baseMun.map(r => r.entidade));
+  const verticais  = _uniqSort(cfg.all.map(r => r.vertical));
+  const statuses   = _uniqSort(cfg.all.map(r => r.status));
+  const semEntidade = cfg.all.every(r => !r.entidade || !String(r.entidade).trim());
+  const barraFiltros = `
+    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:16px">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+        ${_multiDrop(source, 'municipio', 'Município', municipios, fs.municipio, 'Todos os municípios')}
+        ${_multiDrop(source, 'entidade', 'Entidade', entidades, fs.entidade, 'Todas as entidades')}
+        ${_multiDrop(source, 'vertical', 'Vertical', verticais, fs.vertical, 'Todas as verticais')}
+        ${_multiDrop(source, 'status', 'Status', statuses, fs.status, 'Todos os status')}
+        <button onclick="_chamLimparTudo('${source}')" style="padding:8px 14px;border:1px solid #CBD5E0;border-radius:7px;background:#fff;font-size:.78rem;font-weight:600;color:#475569;cursor:pointer;height:36px">✕ Limpar filtros</button>
+      </div>
+      <div style="margin-top:8px;font-size:.72rem;color:#94A3B8;font-style:italic">💡 Marque uma ou mais opções em cada filtro. Combina com o filtro por vertical das pizzas e com o filtro de SLO.</div>
+      ${semEntidade ? '<div style="margin-top:8px;font-size:.74rem;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:6px 10px">⚠️ Os dados ainda não contêm a coluna <b>entidade</b>. Reexecute o Apps Script (onTimeTrigger) para popular esse campo.</div>' : ''}
+    </div>`;
+
+  container.innerHTML = kpiHtml + piesHtml + barraFiltros + filtroBar + sloBar + `<div id="${source}-listagem"></div>`;
   _renderVertPie(c1, cfg.pie1.issues, source, 'depende');
   _renderVertPie(c2, cfg.pie2.issues, source, 'fila');
   _renderVertPie(c3, cfg.pie3.issues, source, 'cliente');
@@ -2046,12 +2076,18 @@ function renderChamadosServico() {
 // ============================================================
 // VIEW 8 — Chamados Abertos por Cliente (filtro Município/Entidade/Vertical/Status)
 // ============================================================
-// Filtros de multi-seleção: cada campo é um Set (vazio = "todos")
-const _clienteFiltro = { fonte: new Set(), municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() };
-let _clienteSlo = 'todos';        // 'todos' | 'estourado' | 'noestourado'
-let _clienteAberto = null;        // campo do dropdown atualmente aberto
+// Filtros multi-seleção compartilhados pelas guias Cliente / Suporte / Serviço.
+// Cada campo é um Set (vazio = "todos").
+const _chamFiltros = {
+  cliente: { fonte: new Set(), municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() },
+  suporte: { municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() },
+  servico: { municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() }
+};
+const _clienteFiltro = _chamFiltros.cliente;  // alias de compatibilidade
+let _clienteSlo = 'todos';        // 'todos' | 'estourado' | 'noestourado' (guia Cliente)
+let _chamDropAberto = null;       // "escopo:campo" do dropdown aberto | null
 let _clienteListaAtual = [];
-let _clienteOutsideBound = false; // garante 1 só listener de clique-fora
+let _chamOutsideBound = false;    // garante 1 só listener de clique-fora
 
 // Escape p/ uso seguro em atributos HTML
 function _escAttr(s) {
@@ -2067,32 +2103,47 @@ function _clientePool() {
   return [...sup, ...srv];
 }
 
+// Re-renderiza a guia de um escopo
+function _chamReRender(scope) {
+  if (scope === 'cliente') renderChamadosPorClienteFiltro();
+  else if (scope === 'suporte') renderChamadosSuporte();
+  else renderChamadosServico();
+}
+
 // Abre/fecha o dropdown de um campo
-function _clienteToggleDrop(campo) {
-  _clienteAberto = (_clienteAberto === campo) ? null : campo;
-  renderChamadosPorClienteFiltro();
+function _chamToggleDrop(scope, campo) {
+  const id = scope + ':' + campo;
+  _chamDropAberto = (_chamDropAberto === id) ? null : id;
+  _chamReRender(scope);
 }
 
 // Marca/desmarca um valor (multi-seleção)
-function _clienteToggleVal(campo, valor) {
-  const set = _clienteFiltro[campo];
+function _chamToggleVal(scope, campo, valor) {
+  const set = _chamFiltros[scope][campo];
   if (set.has(valor)) set.delete(valor); else set.add(valor);
   // Trocar fonte/município pode invalidar entidades já marcadas
-  if (campo === 'fonte' || campo === 'municipio') _clienteFiltro.entidade.clear();
-  renderChamadosPorClienteFiltro();
+  if ((campo === 'fonte' || campo === 'municipio') && _chamFiltros[scope].entidade) _chamFiltros[scope].entidade.clear();
+  _chamReRender(scope);
 }
 
-function _clienteLimparCampo(campo) {
-  _clienteFiltro[campo].clear();
-  if (campo === 'fonte' || campo === 'municipio') _clienteFiltro.entidade.clear();
-  renderChamadosPorClienteFiltro();
+function _chamLimparCampo(scope, campo) {
+  _chamFiltros[scope][campo].clear();
+  if ((campo === 'fonte' || campo === 'municipio') && _chamFiltros[scope].entidade) _chamFiltros[scope].entidade.clear();
+  _chamReRender(scope);
 }
 
-function _limparClienteFiltro() {
-  Object.values(_clienteFiltro).forEach(s => s.clear());
-  _clienteSlo = 'todos';
-  _clienteAberto = null;
-  renderChamadosPorClienteFiltro();
+// Limpa todos os filtros do escopo (inclui vertical por pizza e SLO nas guias Suporte/Serviço)
+function _chamLimparTudo(scope) {
+  Object.values(_chamFiltros[scope]).forEach(s => s.clear());
+  if (scope === 'cliente') {
+    _clienteSlo = 'todos';
+  } else {
+    _chFilter[scope].slo = 'todos';
+    _chFilter[scope].ds = null;
+    _chFilter[scope].verts.clear();
+  }
+  _chamDropAberto = null;
+  _chamReRender(scope);
 }
 
 function _setClienteSlo(_arg, modo) {
@@ -2106,38 +2157,39 @@ function _uniqSort(arr) {
 }
 
 // Fecha o dropdown ao clicar fora dele
-function _clienteBindOutside() {
-  if (_clienteOutsideBound) return;
-  _clienteOutsideBound = true;
+function _chamBindOutside() {
+  if (_chamOutsideBound) return;
+  _chamOutsideBound = true;
   document.addEventListener('click', (e) => {
-    if (_clienteAberto && !(e.target.closest && e.target.closest('.cliente-drop'))) {
-      _clienteAberto = null;
-      renderChamadosPorClienteFiltro();
+    if (_chamDropAberto && !(e.target.closest && e.target.closest('.cham-drop'))) {
+      const scope = _chamDropAberto.split(':')[0];
+      _chamDropAberto = null;
+      _chamReRender(scope);
     }
   });
 }
 
-// Dropdown de multi-seleção com checkboxes
-function _multiDrop(campo, label, opcoes, selSet, labelTodos) {
+// Dropdown de multi-seleção com checkboxes (genérico por escopo)
+function _multiDrop(scope, campo, label, opcoes, selSet, labelTodos) {
   const n      = selSet.size;
-  const aberto = _clienteAberto === campo;
+  const aberto = _chamDropAberto === (scope + ':' + campo);
   const resumo = n === 0 ? labelTodos : (n === 1 ? [...selSet][0] : `${n} selecionados`);
   const checks = opcoes.length
     ? opcoes.map(o => `<label style="display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:.82rem;font-weight:500;color:#1A202C;cursor:pointer;border-radius:5px"
           onmouseover="this.style.background='#F1F5F9'" onmouseout="this.style.background='transparent'">
-          <input type="checkbox" value="${_escAttr(o)}"${selSet.has(o) ? ' checked' : ''} onchange="_clienteToggleVal('${campo}', this.value)" style="cursor:pointer;width:15px;height:15px;flex:none">
+          <input type="checkbox" value="${_escAttr(o)}"${selSet.has(o) ? ' checked' : ''} onchange="_chamToggleVal('${scope}','${campo}', this.value)" style="cursor:pointer;width:15px;height:15px;flex:none">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escAttr(o)}</span>
         </label>`).join('')
     : '<div style="padding:8px 10px;font-size:.8rem;color:#94A3B8">Nenhuma opção</div>';
   const painel = aberto ? `
       <div style="position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:240px;max-width:340px;max-height:300px;overflow-y:auto;background:#fff;border:1px solid #CBD5E0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.14);padding:6px">
-        ${n > 0 ? `<div style="padding:4px 10px 6px;border-bottom:1px solid #EDF2F7;margin-bottom:4px"><button onclick="_clienteLimparCampo('${campo}')" style="font-size:.72rem;font-weight:600;color:#2563EB;background:none;border:none;cursor:pointer;padding:0">Limpar seleção (${n})</button></div>` : ''}
+        ${n > 0 ? `<div style="padding:4px 10px 6px;border-bottom:1px solid #EDF2F7;margin-bottom:4px"><button onclick="_chamLimparCampo('${scope}','${campo}')" style="font-size:.72rem;font-weight:600;color:#2563EB;background:none;border:none;cursor:pointer;padding:0">Limpar seleção (${n})</button></div>` : ''}
         ${checks}
       </div>` : '';
-  return `<div class="cliente-drop" style="position:relative;display:flex;flex-direction:column;gap:3px">
+  return `<div class="cham-drop" style="position:relative;display:flex;flex-direction:column;gap:3px">
       <span style="font-size:.7rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.02em">${label}</span>
-      <button type="button" onclick="_clienteToggleDrop('${campo}')"
-        style="min-width:170px;max-width:260px;padding:7px 10px;border:1px solid ${n > 0 ? '#2B6CB0' : '#CBD5E0'};border-radius:7px;background:${n > 0 ? '#EBF4FF' : '#fff'};font-size:.82rem;font-weight:500;color:#1A202C;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left">
+      <button type="button" onclick="_chamToggleDrop('${scope}','${campo}')"
+        style="min-width:160px;max-width:260px;padding:7px 10px;border:1px solid ${n > 0 ? '#2B6CB0' : '#CBD5E0'};border-radius:7px;background:${n > 0 ? '#EBF4FF' : '#fff'};font-size:.82rem;font-weight:500;color:#1A202C;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left">
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escAttr(resumo)}</span>
         <span style="flex:none;color:#718096;font-size:.7rem">${aberto ? '▲' : '▼'}</span>
       </button>
@@ -2149,7 +2201,7 @@ function renderChamadosPorClienteFiltro() {
   const filtrosEl = document.getElementById('cliente-filtros');
   const contentEl = document.getElementById('cliente-content');
   if (!filtrosEl || !contentEl) return;
-  _clienteBindOutside();
+  _chamBindOutside();
 
   const pool = _clientePool();
   if (!pool.length) {
@@ -2177,12 +2229,12 @@ function renderChamadosPorClienteFiltro() {
   filtrosEl.innerHTML = `
     <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px">
       <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
-        ${_multiDrop('fonte', 'Fonte', fonteOpts, f.fonte, 'Todas as fontes')}
-        ${_multiDrop('municipio', 'Município', municipios, f.municipio, 'Todos os municípios')}
-        ${_multiDrop('entidade', 'Entidade', entidades, f.entidade, 'Todas as entidades')}
-        ${_multiDrop('vertical', 'Vertical', verticais, f.vertical, 'Todas as verticais')}
-        ${_multiDrop('status', 'Status', statuses, f.status, 'Todos os status')}
-        <button onclick="_limparClienteFiltro()"
+        ${_multiDrop('cliente', 'fonte', 'Fonte', fonteOpts, f.fonte, 'Todas as fontes')}
+        ${_multiDrop('cliente', 'municipio', 'Município', municipios, f.municipio, 'Todos os municípios')}
+        ${_multiDrop('cliente', 'entidade', 'Entidade', entidades, f.entidade, 'Todas as entidades')}
+        ${_multiDrop('cliente', 'vertical', 'Vertical', verticais, f.vertical, 'Todas as verticais')}
+        ${_multiDrop('cliente', 'status', 'Status', statuses, f.status, 'Todos os status')}
+        <button onclick="_chamLimparTudo('cliente')"
           style="padding:8px 14px;border:1px solid #CBD5E0;border-radius:7px;background:#fff;font-size:.78rem;font-weight:600;color:#475569;cursor:pointer;height:36px">✕ Limpar filtros</button>
         <button onclick="exportClienteCSV()"
           style="padding:8px 14px;border:1px solid #BFDBFE;border-radius:7px;background:#EFF6FF;font-size:.78rem;font-weight:600;color:#2563EB;cursor:pointer;height:36px">⬇ Exportar CSV</button>
