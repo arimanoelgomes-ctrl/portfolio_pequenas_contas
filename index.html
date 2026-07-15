@@ -2088,6 +2088,28 @@ let _clienteSlo = 'todos';        // 'todos' | 'estourado' | 'noestourado' (guia
 let _chamDropAberto = null;       // "escopo:campo" do dropdown aberto | null
 let _clienteListaAtual = [];
 let _chamOutsideBound = false;    // garante 1 só listener de clique-fora
+const _chamBusca = {};            // texto de busca por "escopo:campo"
+
+// Normaliza texto p/ busca (minúsculo, sem acentos)
+function _normBusca(s) {
+  return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+// Filtra as opções de um dropdown ao digitar (só mexe no DOM, sem re-render — preserva o foco)
+function _chamFiltraOpcoes(scope, campo, q) {
+  _chamBusca[scope + ':' + campo] = q;
+  const nq = _normBusca(q);
+  const painel = document.getElementById('painel-' + scope + '-' + campo);
+  if (!painel) return;
+  let visiveis = 0;
+  painel.querySelectorAll('.cham-opt').forEach(el => {
+    const match = _normBusca(el.getAttribute('data-opt')).includes(nq);
+    el.style.display = match ? '' : 'none';
+    if (match) visiveis++;
+  });
+  const vazio = painel.querySelector('.cham-sem-result');
+  if (vazio) vazio.style.display = visiveis === 0 ? '' : 'none';
+}
 
 // Escape p/ uso seguro em atributos HTML
 function _escAttr(s) {
@@ -2113,8 +2135,11 @@ function _chamReRender(scope) {
 // Abre/fecha o dropdown de um campo
 function _chamToggleDrop(scope, campo) {
   const id = scope + ':' + campo;
-  _chamDropAberto = (_chamDropAberto === id) ? null : id;
+  const abrindo = _chamDropAberto !== id;
+  _chamDropAberto = abrindo ? id : null;
+  _chamBusca[id] = '';
   _chamReRender(scope);
+  if (abrindo) requestAnimationFrame(() => { const el = document.getElementById('busca-' + scope + '-' + campo); if (el) el.focus(); });
 }
 
 // Marca/desmarca um valor (multi-seleção)
@@ -2128,6 +2153,7 @@ function _chamToggleVal(scope, campo, valor) {
 
 function _chamLimparCampo(scope, campo) {
   _chamFiltros[scope][campo].clear();
+  _chamBusca[scope + ':' + campo] = '';
   if ((campo === 'fonte' || campo === 'municipio') && _chamFiltros[scope].entidade) _chamFiltros[scope].entidade.clear();
   _chamReRender(scope);
 }
@@ -2135,6 +2161,7 @@ function _chamLimparCampo(scope, campo) {
 // Limpa todos os filtros do escopo (inclui vertical por pizza e SLO nas guias Suporte/Serviço)
 function _chamLimparTudo(scope) {
   Object.values(_chamFiltros[scope]).forEach(s => s.clear());
+  Object.keys(_chamBusca).forEach(k => { if (k.indexOf(scope + ':') === 0) _chamBusca[k] = ''; });
   if (scope === 'cliente') {
     _clienteSlo = 'todos';
   } else {
@@ -2169,23 +2196,42 @@ function _chamBindOutside() {
   });
 }
 
-// Dropdown de multi-seleção com checkboxes (genérico por escopo)
+// Dropdown de multi-seleção com checkboxes + busca (genérico por escopo)
 function _multiDrop(scope, campo, label, opcoes, selSet, labelTodos) {
-  const n      = selSet.size;
-  const aberto = _chamDropAberto === (scope + ':' + campo);
-  const resumo = n === 0 ? labelTodos : (n === 1 ? [...selSet][0] : `${n} selecionados`);
+  const id      = scope + ':' + campo;
+  const n       = selSet.size;
+  const aberto  = _chamDropAberto === id;
+  const resumo  = n === 0 ? labelTodos : (n === 1 ? [...selSet][0] : `${n} selecionados`);
+  const busca   = _chamBusca[id] || '';
+  const nq      = _normBusca(busca);
+  const comBusca = opcoes.length > 7; // exibe campo de busca só quando há muitas opções
+
   const checks = opcoes.length
-    ? opcoes.map(o => `<label style="display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:.82rem;font-weight:500;color:#1A202C;cursor:pointer;border-radius:5px"
+    ? opcoes.map(o => {
+        const oculto = nq && !_normBusca(o).includes(nq);
+        return `<label class="cham-opt" data-opt="${_escAttr(o)}" style="display:${oculto ? 'none' : 'flex'};align-items:center;gap:8px;padding:5px 10px;font-size:.82rem;font-weight:500;color:#1A202C;cursor:pointer;border-radius:5px"
           onmouseover="this.style.background='#F1F5F9'" onmouseout="this.style.background='transparent'">
           <input type="checkbox" value="${_escAttr(o)}"${selSet.has(o) ? ' checked' : ''} onchange="_chamToggleVal('${scope}','${campo}', this.value)" style="cursor:pointer;width:15px;height:15px;flex:none">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escAttr(o)}</span>
-        </label>`).join('')
+        </label>`;
+      }).join('')
     : '<div style="padding:8px 10px;font-size:.8rem;color:#94A3B8">Nenhuma opção</div>';
+
+  const buscaInput = comBusca
+    ? `<input id="busca-${scope}-${campo}" type="text" placeholder="🔎 Buscar..." value="${_escAttr(busca)}"
+         oninput="_chamFiltraOpcoes('${scope}','${campo}', this.value)"
+         style="width:100%;box-sizing:border-box;padding:6px 9px;margin-bottom:6px;border:1px solid #CBD5E0;border-radius:6px;font-size:.8rem;font-family:inherit;color:#1A202C">`
+    : '';
+
   const painel = aberto ? `
-      <div style="position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:240px;max-width:340px;max-height:300px;overflow-y:auto;background:#fff;border:1px solid #CBD5E0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.14);padding:6px">
-        ${n > 0 ? `<div style="padding:4px 10px 6px;border-bottom:1px solid #EDF2F7;margin-bottom:4px"><button onclick="_chamLimparCampo('${scope}','${campo}')" style="font-size:.72rem;font-weight:600;color:#2563EB;background:none;border:none;cursor:pointer;padding:0">Limpar seleção (${n})</button></div>` : ''}
-        ${checks}
+      <div id="painel-${scope}-${campo}" style="position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:240px;max-width:340px;background:#fff;border:1px solid #CBD5E0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.14);padding:6px">
+        ${buscaInput}
+        ${n > 0 ? `<div style="padding:2px 10px 6px"><button onclick="_chamLimparCampo('${scope}','${campo}')" style="font-size:.72rem;font-weight:600;color:#2563EB;background:none;border:none;cursor:pointer;padding:0">Limpar seleção (${n})</button></div>` : ''}
+        <div style="max-height:250px;overflow-y:auto">${checks}
+          <div class="cham-sem-result" style="display:none;padding:8px 10px;font-size:.8rem;color:#94A3B8">Nenhum resultado</div>
+        </div>
       </div>` : '';
+
   return `<div class="cham-drop" style="position:relative;display:flex;flex-direction:column;gap:3px">
       <span style="font-size:.7rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.02em">${label}</span>
       <button type="button" onclick="_chamToggleDrop('${scope}','${campo}')"
