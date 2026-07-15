@@ -1822,7 +1822,39 @@ function renderChamadosAtendimento() {
 const VERT_PIE_COLORS = ['#2B6CB0','#DD6B20','#38A169','#805AD5','#D69E2E','#0987A0','#C53030','#3182CE','#9F7AEA','#48BB78','#718096','#ED8936'];
 
 // Filtro ativo por guia: ds = 'depende' | 'fila' | null ; vert = string | null
-const _chFilter = { suporte: { ds: null, verts: new Set() }, servico: { ds: null, verts: new Set() } };
+const _chFilter = { suporte: { ds: null, verts: new Set(), slo: 'todos' }, servico: { ds: null, verts: new Set(), slo: 'todos' } };
+
+// Predicado de SLO estourado (slo_horas negativo)
+function _sloEstourado(r) { return (r.slo_horas || '').startsWith('-'); }
+
+// Aplica o modo de filtro de SLO ('todos' | 'estourado' | 'noestourado')
+function _aplicaSloModo(arr, modo) {
+  if (modo === 'estourado')   return arr.filter(_sloEstourado);
+  if (modo === 'noestourado') return arr.filter(r => !_sloEstourado(r));
+  return arr;
+}
+
+// Controle segmentado Todos / Com SLO estourado / Sem SLO estourado
+function _sloSegHtml(atual, fnName, arg) {
+  const opt = (modo, label, onBg, onFg) => {
+    const on = atual === modo;
+    return `<button type="button" onclick="${fnName}('${arg}','${modo}')"
+      style="padding:6px 13px;border:1px solid ${on ? '#2B6CB0' : '#CBD5E0'};margin-left:-1px;background:${on ? onBg : '#fff'};color:${on ? onFg : '#475569'};font-size:.76rem;font-weight:600;cursor:pointer;font-family:inherit;position:relative;z-index:${on ? 2 : 1}">${label}</button>`;
+  };
+  return `<div style="display:inline-flex;align-items:center;gap:0">
+      <span style="font-size:.7rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.02em;margin-right:8px">SLO:</span>
+      <span style="display:inline-flex;border-radius:7px;overflow:hidden">
+        ${opt('todos', 'Todos', '#EBF4FF', '#1E3A5F')}
+        ${opt('estourado', '⚠ Com SLO estourado', '#FEF2F2', '#B91C1C')}
+        ${opt('noestourado', '✓ Sem SLO estourado', '#F0FDF4', '#15803D')}
+      </span>
+    </div>`;
+}
+
+function _setChamadosSlo(source, modo) {
+  _chFilter[source].slo = modo;
+  source === 'suporte' ? renderChamadosSuporte() : renderChamadosServico();
+}
 
 // Configuração de cada guia (pools de chamados por conjunto)
 function _chamadosCfg(source) {
@@ -1848,6 +1880,7 @@ function _chamadosFiltered(cfg) {
     const ds = cur.ds === 'depende' ? cfg.pie1.issues : cur.ds === 'fila' ? cfg.pie2.issues : cfg.pie3.issues;
     arr = ds.filter(r => cur.verts.has(r.vertical || 'Não informado'));
   }
+  arr = _aplicaSloModo(arr, cur.slo);
   return [...arr].sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
 }
 
@@ -1974,9 +2007,11 @@ function _renderChamadosTab(source, container) {
     : `<div style="font-size:.74rem;color:#94A3B8;margin:18px 0 12px;font-style:italic">💡 Clique em uma ou mais fatias dos gráficos para filtrar a listagem por vertical. Clique de novo numa fatia para removê-la.</div>`;
 
   const listIssues = _chamadosFiltered(cfg);
-  const listLabel  = filterActive ? `${dsLabel} · ${[...cur.verts].join(', ')}` : 'Todos os chamados em aberto';
+  const sloLabelTxt = cur.slo === 'estourado' ? ' · com SLO estourado' : cur.slo === 'noestourado' ? ' · sem SLO estourado' : '';
+  const listLabel  = (filterActive ? `${dsLabel} · ${[...cur.verts].join(', ')}` : 'Todos os chamados em aberto') + sloLabelTxt;
+  const sloBar = `<div style="display:flex;align-items:center;margin:0 0 14px">${_sloSegHtml(cur.slo, '_setChamadosSlo', source)}</div>`;
 
-  container.innerHTML = kpiHtml + piesHtml + filtroBar + `<div id="${source}-listagem"></div>`;
+  container.innerHTML = kpiHtml + piesHtml + filtroBar + sloBar + `<div id="${source}-listagem"></div>`;
   _renderVertPie(c1, cfg.pie1.issues, source, 'depende');
   _renderVertPie(c2, cfg.pie2.issues, source, 'fila');
   _renderVertPie(c3, cfg.pie3.issues, source, 'cliente');
@@ -2013,6 +2048,7 @@ function renderChamadosServico() {
 // ============================================================
 // Filtros de multi-seleção: cada campo é um Set (vazio = "todos")
 const _clienteFiltro = { fonte: new Set(), municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() };
+let _clienteSlo = 'todos';        // 'todos' | 'estourado' | 'noestourado'
 let _clienteAberto = null;        // campo do dropdown atualmente aberto
 let _clienteListaAtual = [];
 let _clienteOutsideBound = false; // garante 1 só listener de clique-fora
@@ -2054,7 +2090,13 @@ function _clienteLimparCampo(campo) {
 
 function _limparClienteFiltro() {
   Object.values(_clienteFiltro).forEach(s => s.clear());
+  _clienteSlo = 'todos';
   _clienteAberto = null;
+  renderChamadosPorClienteFiltro();
+}
+
+function _setClienteSlo(_arg, modo) {
+  _clienteSlo = modo;
   renderChamadosPorClienteFiltro();
 }
 
@@ -2145,18 +2187,19 @@ function renderChamadosPorClienteFiltro() {
         <button onclick="exportClienteCSV()"
           style="padding:8px 14px;border:1px solid #BFDBFE;border-radius:7px;background:#EFF6FF;font-size:.78rem;font-weight:600;color:#2563EB;cursor:pointer;height:36px">⬇ Exportar CSV</button>
       </div>
+      <div style="display:flex;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid #E2E8F0">${_sloSegHtml(_clienteSlo, '_setClienteSlo', 'cliente')}</div>
       <div style="margin-top:8px;font-size:.72rem;color:#94A3B8;font-style:italic">💡 Você pode marcar mais de uma opção em cada filtro.</div>
       ${semEntidade ? '<div style="margin-top:8px;font-size:.74rem;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:6px 10px">⚠️ Os dados ainda não contêm a coluna <b>entidade</b>. Reexecute o Apps Script (onTimeTrigger) para popular esse campo nos chamados.</div>' : ''}
     </div>`;
 
-  // Aplica os filtros (multi-seleção: Set vazio = todos)
-  let lista = pool.filter(r =>
+  // Aplica os filtros (multi-seleção: Set vazio = todos) + filtro de SLO
+  let lista = _aplicaSloModo(pool.filter(r =>
     inSet(f.fonte,     r._fonte) &&
     inSet(f.municipio, r.municipio || '') &&
     inSet(f.entidade,  r.entidade  || '') &&
     inSet(f.vertical,  r.vertical  || '') &&
     inSet(f.status,    r.status    || '')
-  ).sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
+  ), _clienteSlo).sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
 
   _clienteListaAtual = lista;
 
