@@ -704,7 +704,7 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], chamadosIssues: [], suporte: [], suporteIssues: [], selectedDate: null };
+const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], implantacoesAdiadas: [], implSubTab: 'esteano', chamadosIssues: [], suporte: [], suporteIssues: [], selectedDate: null };
 // Abas que possuem versão histórica no servidor
 const HIST_SHEETS = ['Jira_Chamados', 'Jira_Chamados_Suporte', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
 
@@ -965,7 +965,7 @@ async function loadAllData() {
   showLoading(true);
   if (btn) btn.disabled = true;
 
-  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes, chamadosIssuesRes, suporteRes, suporteIssuesRes] = await Promise.allSettled([
+  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes, implAdiadasRes, chamadosIssuesRes, suporteRes, suporteIssuesRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
     fetchSheet('NPS_Calculado'),
@@ -974,6 +974,7 @@ async function loadAllData() {
     fetchSheet('Colaboradores'),
     fetchSheet('Jira_Implantacoes'),
     fetchSheet('Jira_Implantacoes_Issues'),
+    fetchSheet('Implantacoes_Adiadas'),
     fetchSheet('Jira_Chamados_Issues'),
     fetchSheet('Jira_Chamados_Suporte'),
     fetchSheet('Jira_Chamados_Suporte_Issues'),
@@ -1005,6 +1006,10 @@ async function loadAllData() {
 
   if (implIssuesRes.status === 'fulfilled') state.implantacoesIssues = implIssuesRes.value;
   else { console.warn('ImplantacoesIssues:', implIssuesRes.reason?.message); state.implantacoesIssues = []; }
+
+  // Aba opcional mantida manualmente: chaves Jira das implantações adiadas p/ 2027 (coluna "key")
+  if (implAdiadasRes.status === 'fulfilled') state.implantacoesAdiadas = implAdiadasRes.value;
+  else { console.warn('ImplantacoesAdiadas (aba opcional):', implAdiadasRes.reason?.message); state.implantacoesAdiadas = []; }
 
   if (chamadosIssuesRes.status === 'fulfilled') state.chamadosIssues = chamadosIssuesRes.value;
   else { console.warn('ChamadosIssues:', chamadosIssuesRes.reason?.message); state.chamadosIssues = []; }
@@ -1299,7 +1304,7 @@ function openImplModal(td) {
   const modeProd  = (document.getElementById('impl-f-prod-mode') || {}).dataset?.mode || 'include';
   const prodTerms = fProdRaw.toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
 
-  const issues = state.implantacoesIssues.filter(r => {
+  const issues = _implIssuesAtivas().filter(r => {
     if (r.municipio !== mun || r.vertical !== vert) return false;
     if (!prodTerms.length) return true;
     const sumL = (r.summary || '').toLowerCase();
@@ -3327,34 +3332,109 @@ function _toggleImplVert(vert) {
   _implRefresh();
 }
 
+// Conjunto de chaves Jira marcadas como adiadas p/ 2027 (aba Implantacoes_Adiadas, coluna "key")
+function _implAdiadasSet() {
+  const s = new Set();
+  (state.implantacoesAdiadas || []).forEach(r => {
+    const k = (r.key || r.chave || r.codigo || '').toString().trim();
+    if (k) s.add(k);
+  });
+  return s;
+}
+
+// Podemos dividir por chave apenas quando há dados issue-a-issue
+function _implPodeDividir() { return (state.implantacoesIssues || []).length > 0; }
+
+// Issues da sub-aba ativa ('esteano' = não adiadas | 'adiadas' = adiadas p/ 2027)
+function _implIssuesAtivas() {
+  const issues = state.implantacoesIssues || [];
+  if (!_implPodeDividir()) return issues;
+  const adi = _implAdiadasSet();
+  return state.implSubTab === 'adiadas'
+    ? issues.filter(r => adi.has((r.key || '').trim()))
+    : issues.filter(r => !adi.has((r.key || '').trim()));
+}
+
+// Classifica uma issue pelo prazo contratual
+function _implStatusPorPrazo(r, today) {
+  if (r.prazo) { const d = new Date(r.prazo); if (!isNaN(d.getTime())) return d < today ? 'atrasados' : 'no_prazo'; }
+  return 'sem_prazo';
+}
+
+// Reconstrói o munMap (município × vertical) a partir de um conjunto de issues
+function _implAgregarDeIssues(issues) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const munMap = {};
+  issues.forEach(r => {
+    const mu = (r.municipio || 'Não informado').trim();
+    const v  = (r.vertical  || 'Não informado').trim();
+    if (!munMap[mu]) munMap[mu] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
+    if (!munMap[mu][v]) munMap[mu][v] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0, prazo_minimo: '' };
+    const st = _implStatusPorPrazo(r, today);
+    munMap[mu][v][st]++; munMap[mu][v].total++;
+    munMap[mu][st]++;    munMap[mu].total++;
+    if (r.prazo && (!munMap[mu][v].prazo_minimo || r.prazo < munMap[mu][v].prazo_minimo)) munMap[mu][v].prazo_minimo = r.prazo;
+  });
+  return munMap;
+}
+
+function switchImplSubTab(sub) {
+  state.implSubTab = sub;
+  renderImplantacoes();
+}
+
 function renderImplantacoes() {
   const container = document.getElementById('impl-content');
   implCharts.forEach(c => c.destroy());
   implCharts = [];
 
-  if (!state.implantacoes.length) {
+  if (!state.implantacoes.length && !(state.implantacoesIssues || []).length) {
     unavailable(container, 'Dados de implantações indisponíveis. Verifique se a planilha Jira_Implantacoes está publicada.');
     return;
   }
 
-  // --- Agregação ---
-  const munMap = {};
-  state.implantacoes.forEach(r => {
-    const mu        = (r.municipio || 'Não informado').trim();
-    const v         = (r.vertical  || 'Não informado').trim();
-    const total     = parseInt(r.total)     || 0;
-    const atrasados = parseInt(r.atrasados) || 0;
-    const no_prazo  = parseInt(r.no_prazo)  || 0;
-    const sem_prazo = parseInt(r.sem_prazo) || 0;
-    const praz_min  = r.prazo_minimo || '';
+  // --- Sub-abas: Este ano × Adiadas p/ 2027 (divisão por chave via aba Implantacoes_Adiadas) ---
+  const podeDividir = _implPodeDividir();
+  const adiSet      = _implAdiadasSet();
+  const nEste = (state.implantacoesIssues || []).filter(r => !adiSet.has((r.key || '').trim())).length;
+  const nAdi  = (state.implantacoesIssues || []).filter(r =>  adiSet.has((r.key || '').trim())).length;
+  const subBtn = (sub, emoji, label, count, cor) => {
+    const on = state.implSubTab === sub;
+    return `<button onclick="switchImplSubTab('${sub}')"
+      style="padding:8px 18px;background:none;border:none;border-bottom:3px solid ${on ? cor : 'transparent'};font-weight:700;font-size:.9rem;color:${on ? cor : 'var(--text-muted)'};cursor:pointer;margin-bottom:-2px;transition:color .2s,border-color .2s">
+      ${emoji} ${label} <span style="font-size:.75rem;font-weight:600;color:${on ? cor : '#94A3B8'}">${count}</span></button>`;
+  };
+  const subTabsHtml = podeDividir ? `
+    <div style="display:flex;gap:8px;margin:0 0 16px;border-bottom:2px solid #E2E8F0">
+      ${subBtn('esteano', '📌', 'Para implantar este ano', nEste, 'var(--accent)')}
+      ${subBtn('adiadas', '📅', 'Adiadas para 2027', nAdi, '#B45309')}
+    </div>
+    ${state.implSubTab === 'adiadas' && nAdi === 0 && adiSet.size === 0
+      ? '<div style="margin-bottom:14px;font-size:.78rem;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:8px 12px">⚠️ Nenhuma implantação adiada cadastrada. Preencha a aba <b>Implantacoes_Adiadas</b> na planilha com as chaves Jira (coluna <b>key</b>) das oportunidades que o cliente não quer implantar agora.</div>'
+      : ''}` : '';
 
-    if (!munMap[mu]) munMap[mu] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
-    munMap[mu][v] = { total, atrasados, no_prazo, sem_prazo, prazo_minimo: praz_min };
-    munMap[mu].total     += total;
-    munMap[mu].atrasados += atrasados;
-    munMap[mu].no_prazo  += no_prazo;
-    munMap[mu].sem_prazo += sem_prazo;
-  });
+  // --- Agregação (a partir das issues da sub-aba ativa; fallback: resumo Jira_Implantacoes) ---
+  let munMap;
+  if (podeDividir) {
+    munMap = _implAgregarDeIssues(_implIssuesAtivas());
+  } else {
+    munMap = {};
+    state.implantacoes.forEach(r => {
+      const mu        = (r.municipio || 'Não informado').trim();
+      const v         = (r.vertical  || 'Não informado').trim();
+      const total     = parseInt(r.total)     || 0;
+      const atrasados = parseInt(r.atrasados) || 0;
+      const no_prazo  = parseInt(r.no_prazo)  || 0;
+      const sem_prazo = parseInt(r.sem_prazo) || 0;
+      const praz_min  = r.prazo_minimo || '';
+      if (!munMap[mu]) munMap[mu] = { total: 0, atrasados: 0, no_prazo: 0, sem_prazo: 0 };
+      munMap[mu][v] = { total, atrasados, no_prazo, sem_prazo, prazo_minimo: praz_min };
+      munMap[mu].total     += total;
+      munMap[mu].atrasados += atrasados;
+      munMap[mu].no_prazo  += no_prazo;
+      munMap[mu].sem_prazo += sem_prazo;
+    });
+  }
 
   const municipios = Object.entries(munMap)
     .sort((a, b) => (b[1].atrasados - a[1].atrasados) || (b[1].total - a[1].total))
@@ -3475,7 +3555,7 @@ function renderImplantacoes() {
       <span style="color:#94A3B8;font-style:italic">Passe o mouse sobre a célula para ver detalhes</span>
     </div>`;
 
-  container.innerHTML = kpiHtml + chartsHtml + filterHtml +
+  container.innerHTML = subTabsHtml + kpiHtml + chartsHtml + filterHtml +
     `<div id="impl-pivot-wrapper"></div>` + legendaHtml;
 
   // --- Gráficos selecionáveis + pivot ---
@@ -3530,7 +3610,7 @@ function _updateImplPivot() {
   let filteredMap = null;
   if (prodTerms.length) {
     filteredMap = {};
-    state.implantacoesIssues.forEach(r => {
+    _implIssuesAtivas().forEach(r => {
       const sumL = (r.summary || '').toLowerCase();
       const matchesAny = prodTerms.some(t => sumL.includes(t));
       const passes = modeProd === 'exclude' ? !matchesAny : matchesAny;
@@ -3627,7 +3707,7 @@ function _updateImplPivot() {
 
   _implTotalIssues = { __all__: [] };
   verticaisVis.forEach(v => { _implTotalIssues[v] = []; });
-  state.implantacoesIssues.forEach(r => {
+  _implIssuesAtivas().forEach(r => {
     const m = (r.municipio || '').trim();
     const v = (r.vertical  || '').trim();
     if (!linhasVis.includes(m)) return;
