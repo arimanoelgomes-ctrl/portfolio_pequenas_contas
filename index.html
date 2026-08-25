@@ -492,10 +492,10 @@
       <div class="kpi-value" id="kpi-nps">—</div>
       <div class="kpi-sub" id="kpi-nps-sub">Carregando…</div>
     </div>
-    <div class="kpi-card purple" style="cursor:pointer" onclick="switchTab(1)" title="Ver detalhe das implantações">
-      <div class="kpi-label">Implantações Pendentes</div>
-      <div class="kpi-value" id="kpi-impl" style="color:#7C3AED">—</div>
-      <div class="kpi-sub" id="kpi-impl-sub">Carregando…</div>
+    <div class="kpi-card" style="border-top-color:#047857" title="Soma da Receita Recorrente Mensal dos municípios do portfólio • Fonte: Power BI Book do Cliente">
+      <div class="kpi-label">Receita Recorrente</div>
+      <div class="kpi-value" id="kpi-recorrente" style="color:#047857">—</div>
+      <div class="kpi-sub" id="kpi-recorrente-sub">Carregando…</div>
     </div>
   </div>
 
@@ -704,7 +704,7 @@ const CONFIG = {
 // ============================================================
 // ESTADO
 // ============================================================
-const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], implantacoesAdiadas: [], implSubTab: 'esteano', chamadosIssues: [], suporte: [], suporteIssues: [], selectedDate: null };
+const state = { jira: [], risco: [], nps: [], cnd: [], cndEstadual: [], cndFederal: [], cndSubTab: 'estadual', colaboradores: [], implantacoes: [], implantacoesIssues: [], implantacoesAdiadas: [], implSubTab: 'esteano', recorrente: [], chamadosIssues: [], suporte: [], suporteIssues: [], selectedDate: null };
 // Abas que possuem versão histórica no servidor
 const HIST_SHEETS = ['Jira_Chamados', 'Jira_Chamados_Suporte', 'Jira_Implantacoes', 'NPS_Calculado', 'CND_Municipios', 'CND_Federal', 'CND_Estadual', 'Risco de Exclusão', 'Colaboradores'];
 
@@ -981,7 +981,7 @@ async function loadAllData() {
   showLoading(true);
   if (btn) btn.disabled = true;
 
-  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes, implAdiadasRes, chamadosIssuesRes, suporteRes, suporteIssuesRes] = await Promise.allSettled([
+  const [jiraRes, riscoRes, npsRes, cndEstRes, cndFedRes, colabRes, implRes, implIssuesRes, implAdiadasRes, recorrenteRes, chamadosIssuesRes, suporteRes, suporteIssuesRes] = await Promise.allSettled([
     fetchSheet('Jira_Chamados'),
     fetchSheet('Risco de Exclusão'),
     fetchSheet('NPS_Calculado'),
@@ -991,6 +991,7 @@ async function loadAllData() {
     fetchSheet('Jira_Implantacoes'),
     fetchSheet('Jira_Implantacoes_Issues'),
     fetchSheet('Implantacoes_Adiadas'),
+    fetchSheet('Receita_Recorrente'),
     fetchSheet('Jira_Chamados_Issues'),
     fetchSheet('Jira_Chamados_Suporte'),
     fetchSheet('Jira_Chamados_Suporte_Issues'),
@@ -1026,6 +1027,10 @@ async function loadAllData() {
   // Aba opcional mantida manualmente: chaves Jira das implantações adiadas p/ 2027 (coluna "key")
   if (implAdiadasRes.status === 'fulfilled') state.implantacoesAdiadas = implAdiadasRes.value;
   else { console.warn('ImplantacoesAdiadas (aba opcional):', implAdiadasRes.reason?.message); state.implantacoesAdiadas = []; }
+
+  // Aba mantida manualmente: receita recorrente mensal do portfólio (competencia; valor)
+  if (recorrenteRes.status === 'fulfilled') state.recorrente = recorrenteRes.value;
+  else { console.warn('Receita_Recorrente (aba opcional):', recorrenteRes.reason?.message); state.recorrente = []; }
 
   if (chamadosIssuesRes.status === 'fulfilled') state.chamadosIssues = chamadosIssuesRes.value;
   else { console.warn('ChamadosIssues:', chamadosIssuesRes.reason?.message); state.chamadosIssues = []; }
@@ -1163,19 +1168,75 @@ function updateKPIs() {
     document.getElementById('kpi-nps-sub').textContent = 'Dados indisponíveis';
   }
 
-  // Implantações
-  if (state.implantacoes.length) {
-    const totalImpl    = state.implantacoes.reduce((s, r) => s + (parseInt(r.total)     || 0), 0);
-    const totalAtras   = state.implantacoes.reduce((s, r) => s + (parseInt(r.atrasados) || 0), 0);
-    const munImpl      = new Set(state.implantacoes.map(r => r.municipio).filter(Boolean)).size;
-    const elImpl       = document.getElementById('kpi-impl');
-    elImpl.textContent = totalImpl;
-    elImpl.style.color = totalAtras > 0 ? '#DC2626' : '#7C3AED';
-    document.getElementById('kpi-impl-sub').textContent =
-      `${totalAtras} atrasada${totalAtras !== 1 ? 's' : ''} · ${munImpl} municípios`;
+  // Receita Recorrente Mensal (aba Receita_Recorrente — mantida manualmente a partir do Power BI)
+  renderKpiRecorrente();
+}
+
+// Converte "1.327.949,53" / "1327949.53" / número → Number
+function _parseValorBR(v) {
+  if (typeof v === 'number') return v;
+  let s = String(v == null ? '' : v).replace(/[R$\s ]/g, '');
+  if (!s) return NaN;
+  if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.'); // formato BR
+  return parseFloat(s);
+}
+
+// Formata em R$ compacto (ex.: R$ 1,33 mi) para caber no card
+function _fmtValorCompacto(n) {
+  if (!isFinite(n)) return '—';
+  if (Math.abs(n) >= 1e6) return 'R$ ' + (n / 1e6).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' mi';
+  if (Math.abs(n) >= 1e3) return 'R$ ' + (n / 1e3).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' mil';
+  return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Ordena as linhas por competência (aceita "01/07/2026", "07/2026" ou "2026-07")
+function _compKey(c) {
+  const s = String(c || '').trim();
+  let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if (m) return m[3] + m[2];
+  m = s.match(/^(\d{2})\/(\d{4})$/);              if (m) return m[2] + m[1];
+  m = s.match(/^(\d{4})-(\d{2})/);                if (m) return m[1] + m[2];
+  return s;
+}
+
+function _fmtCompetencia(c) {
+  const k = _compKey(c);
+  if (/^\d{6}$/.test(k)) {
+    const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    return meses[parseInt(k.slice(4, 6), 10) - 1] + '/' + k.slice(0, 4);
+  }
+  return c || '';
+}
+
+function renderKpiRecorrente() {
+  const el    = document.getElementById('kpi-recorrente');
+  const elSub = document.getElementById('kpi-recorrente-sub');
+  if (!el || !elSub) return;
+
+  const linhas = (state.recorrente || [])
+    .map(r => ({ comp: r.competencia || r.competência || r.mes || '', valor: _parseValorBR(r.valor ?? r.receita ?? r.total) }))
+    .filter(r => isFinite(r.valor))
+    .sort((a, b) => _compKey(a.comp).localeCompare(_compKey(b.comp)));
+
+  if (!linhas.length) {
+    el.textContent = '—';
+    elSub.textContent = 'Preencha a aba Receita_Recorrente';
+    return;
+  }
+
+  const atual = linhas[linhas.length - 1];
+  const ant   = linhas.length > 1 ? linhas[linhas.length - 2] : null;
+  el.textContent = _fmtValorCompacto(atual.valor);
+  el.title = 'R$ ' + atual.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  if (ant && ant.valor > 0) {
+    const delta = atual.valor - ant.valor;
+    const pct   = Math.abs(delta / ant.valor * 100);
+    const seta  = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+    el.style.color = delta < 0 ? '#DC2626' : '#047857';
+    elSub.textContent = `${_fmtCompetencia(atual.comp)} · ${seta} ${pct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% vs ${_fmtCompetencia(ant.comp)}`;
   } else {
-    document.getElementById('kpi-impl').textContent = '—';
-    document.getElementById('kpi-impl-sub').textContent = 'Dados indisponíveis';
+    el.style.color = '#047857';
+    elSub.textContent = `Competência ${_fmtCompetencia(atual.comp)}`;
   }
 }
 
