@@ -1895,7 +1895,7 @@ function _chamadosCfg(source) {
 // Lista filtrada conforme seleção (vertical + conjunto da pizza)
 function _chamadosFiltered(cfg) {
   const cur = _chFilter[cfg.source];
-  const fs  = _chamFiltros[cfg.source];
+  const fs  = _chamAplicado[cfg.source]; // usa filtros APLICADOS
   const inSet = (set, val) => !set || set.size === 0 || set.has(val);
   let arr;
   if (!cur.ds || cur.verts.size === 0) arr = cfg.all;
@@ -1903,12 +1903,13 @@ function _chamadosFiltered(cfg) {
     const ds = cur.ds === 'depende' ? cfg.pie1.issues : cur.ds === 'fila' ? cfg.pie2.issues : cfg.pie3.issues;
     arr = ds.filter(r => cur.verts.has(r.vertical || 'Não informado'));
   }
-  // Filtros multi-seleção (município / entidade / vertical / status)
+  // Filtros multi-seleção (município / entidade / vertical / status / responsável)
   arr = arr.filter(r =>
-    inSet(fs.municipio, r.municipio || '') &&
-    inSet(fs.entidade,  r.entidade  || '') &&
-    inSet(fs.vertical,  r.vertical  || '') &&
-    inSet(fs.status,    r.status    || ''));
+    inSet(fs.municipio,   r.municipio   || '') &&
+    inSet(fs.entidade,    r.entidade    || '') &&
+    inSet(fs.vertical,    r.vertical    || '') &&
+    inSet(fs.status,      r.status      || '') &&
+    inSet(fs.responsavel, r.responsavel || ''));
   arr = _aplicaSloModo(arr, cur.slo);
   return [...arr].sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
 }
@@ -2041,28 +2042,8 @@ function _renderChamadosTab(source, container) {
   const listLabel  = (filterActive ? `${dsLabel} · ${[...cur.verts].join(', ')}` : 'Todos os chamados em aberto') + sloLabelTxt;
   const sloBar = `<div style="display:flex;align-items:center;margin:0 0 14px">${_sloSegHtml(cur.slo, '_setChamadosSlo', source)}</div>`;
 
-  // Barra de filtros multi-seleção (Município / Entidade / Vertical / Status)
-  const fs = _chamFiltros[source];
-  const baseMun    = fs.municipio.size ? cfg.all.filter(r => fs.municipio.has(r.municipio || '')) : cfg.all;
-  const municipios = _uniqSort(cfg.all.map(r => r.municipio));
-  const entidades  = _uniqSort(baseMun.map(r => r.entidade));
-  const verticais  = _uniqSort(cfg.all.map(r => r.vertical));
-  const statuses   = _uniqSort(cfg.all.map(r => r.status));
-  const semEntidade = cfg.all.every(r => !r.entidade || !String(r.entidade).trim());
-  const barraFiltros = `
-    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:16px">
-      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-        ${_multiDrop(source, 'municipio', 'Município', municipios, fs.municipio, 'Todos os municípios')}
-        ${_multiDrop(source, 'entidade', 'Entidade', entidades, fs.entidade, 'Todas as entidades')}
-        ${_multiDrop(source, 'vertical', 'Vertical', verticais, fs.vertical, 'Todas as verticais')}
-        ${_multiDrop(source, 'status', 'Status', statuses, fs.status, 'Todos os status')}
-        <button onclick="_chamLimparTudo('${source}')" style="padding:8px 14px;border:1px solid #CBD5E0;border-radius:7px;background:#fff;font-size:.78rem;font-weight:600;color:#475569;cursor:pointer;height:36px">✕ Limpar filtros</button>
-      </div>
-      <div style="margin-top:8px;font-size:.72rem;color:#94A3B8;font-style:italic">💡 Marque uma ou mais opções em cada filtro. Combina com o filtro por vertical das pizzas e com o filtro de SLO.</div>
-      ${semEntidade ? '<div style="margin-top:8px;font-size:.74rem;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:6px 10px">⚠️ Os dados ainda não contêm a coluna <b>entidade</b>. Reexecute o Apps Script (onTimeTrigger) para popular esse campo.</div>' : ''}
-    </div>`;
-
-  container.innerHTML = kpiHtml + piesHtml + barraFiltros + filtroBar + sloBar + `<div id="${source}-listagem"></div>`;
+  container.innerHTML = kpiHtml + piesHtml + `<div id="${source}-filtros"></div>` + filtroBar + sloBar + `<div id="${source}-listagem"></div>`;
+  _renderChamBar(source);
   _renderVertPie(c1, cfg.pie1.issues, source, 'depende');
   _renderVertPie(c2, cfg.pie2.issues, source, 'fila');
   _renderVertPie(c3, cfg.pie3.issues, source, 'cliente');
@@ -2099,11 +2080,25 @@ function renderChamadosServico() {
 // ============================================================
 // Filtros multi-seleção compartilhados pelas guias Cliente / Suporte / Serviço.
 // Cada campo é um Set (vazio = "todos").
-const _chamFiltros = {
-  cliente: { fonte: new Set(), municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() },
-  suporte: { municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() },
-  servico: { municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set() }
-};
+function _mkFilt(scope) {
+  const o = { municipio: new Set(), entidade: new Set(), vertical: new Set(), status: new Set(), responsavel: new Set() };
+  if (scope === 'cliente') o.fonte = new Set();
+  return o;
+}
+function _cloneFilt(f) { const o = {}; for (const k in f) o[k] = f[k] instanceof Set ? new Set(f[k]) : f[k]; return o; }
+// Rascunho difere do aplicado? (habilita o botão Aplicar)
+function _filtDirty(scope) {
+  const d = _chamFiltros[scope], a = _chamAplicado[scope];
+  for (const k in d) {
+    if (!(d[k] instanceof Set)) continue;
+    const A = a[k] || new Set();
+    if (d[k].size !== A.size) return true;
+    for (const v of d[k]) if (!A.has(v)) return true;
+  }
+  return false;
+}
+const _chamFiltros  = { cliente: _mkFilt('cliente'), suporte: _mkFilt('suporte'), servico: _mkFilt('servico') }; // RASCUNHO (dropdowns)
+const _chamAplicado = { cliente: _mkFilt('cliente'), suporte: _mkFilt('suporte'), servico: _mkFilt('servico') }; // APLICADO (listagem)
 const _clienteFiltro = _chamFiltros.cliente;  // alias de compatibilidade
 let _clienteSlo = 'todos';        // 'todos' | 'estourado' | 'noestourado' (guia Cliente)
 let _chamDropAberto = null;       // "escopo:campo" do dropdown aberto | null
@@ -2159,29 +2154,51 @@ function _chamToggleDrop(scope, campo) {
   const abrindo = _chamDropAberto !== id;
   _chamDropAberto = abrindo ? id : null;
   _chamBusca[id] = '';
-  _chamReRender(scope);
+  _chamRenderBar(scope);
   if (abrindo) requestAnimationFrame(() => { const el = document.getElementById('busca-' + scope + '-' + campo); if (el) el.focus(); });
 }
 
-// Marca/desmarca um valor (multi-seleção)
+// Marca/desmarca um valor (multi-seleção) — só rascunho, aplica no botão Aplicar
 function _chamToggleVal(scope, campo, valor) {
   const set = _chamFiltros[scope][campo];
   if (set.has(valor)) set.delete(valor); else set.add(valor);
   // Trocar fonte/município pode invalidar entidades já marcadas
   if ((campo === 'fonte' || campo === 'municipio') && _chamFiltros[scope].entidade) _chamFiltros[scope].entidade.clear();
-  _chamReRender(scope);
+  _chamRenderBar(scope);
+}
+
+// Marca todas as opções do campo (usuário depois desmarca o que não quer)
+function _chamSelTodos(scope, campo) {
+  const painel = document.getElementById('painel-' + scope + '-' + campo);
+  const set = _chamFiltros[scope][campo];
+  if (painel) painel.querySelectorAll('.cham-opt input[type=checkbox]').forEach(cb => set.add(cb.value));
+  _chamRenderBar(scope);
 }
 
 function _chamLimparCampo(scope, campo) {
   _chamFiltros[scope][campo].clear();
   _chamBusca[scope + ':' + campo] = '';
   if ((campo === 'fonte' || campo === 'municipio') && _chamFiltros[scope].entidade) _chamFiltros[scope].entidade.clear();
+  _chamRenderBar(scope);
+}
+
+// Aplica o rascunho (copia para o estado aplicado) e re-renderiza a listagem
+function _chamAplicar(scope) {
+  _chamAplicado[scope] = _cloneFilt(_chamFiltros[scope]);
+  _chamDropAberto = null;
   _chamReRender(scope);
 }
 
-// Limpa todos os filtros do escopo (inclui vertical por pizza e SLO nas guias Suporte/Serviço)
+// Re-renderiza somente a barra de filtros (mantém listagem/gráficos)
+function _chamRenderBar(scope) {
+  if (scope === 'cliente') _renderClienteBar();
+  else _renderChamBar(scope);
+}
+
+// Limpa todos os filtros do escopo — rascunho E aplicado (inclui vertical por pizza e SLO nas guias Suporte/Serviço)
 function _chamLimparTudo(scope) {
-  Object.values(_chamFiltros[scope]).forEach(s => s.clear());
+  Object.values(_chamFiltros[scope]).forEach(s => { if (s instanceof Set) s.clear(); });
+  Object.values(_chamAplicado[scope]).forEach(s => { if (s instanceof Set) s.clear(); });
   Object.keys(_chamBusca).forEach(k => { if (k.indexOf(scope + ':') === 0) _chamBusca[k] = ''; });
   if (scope === 'cliente') {
     _clienteSlo = 'todos';
@@ -2212,7 +2229,7 @@ function _chamBindOutside() {
     if (_chamDropAberto && !(e.target.closest && e.target.closest('.cham-drop'))) {
       const scope = _chamDropAberto.split(':')[0];
       _chamDropAberto = null;
-      _chamReRender(scope);
+      _chamRenderBar(scope);
     }
   });
 }
@@ -2247,7 +2264,10 @@ function _multiDrop(scope, campo, label, opcoes, selSet, labelTodos) {
   const painel = aberto ? `
       <div id="painel-${scope}-${campo}" style="position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:240px;max-width:340px;background:#fff;border:1px solid #CBD5E0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.14);padding:6px">
         ${buscaInput}
-        ${n > 0 ? `<div style="padding:2px 10px 6px"><button onclick="_chamLimparCampo('${scope}','${campo}')" style="font-size:.72rem;font-weight:600;color:#2563EB;background:none;border:none;cursor:pointer;padding:0">Limpar seleção (${n})</button></div>` : ''}
+        <div style="display:flex;justify-content:space-between;gap:8px;padding:2px 10px 6px;border-bottom:1px solid #EDF2F7;margin-bottom:4px">
+          <button onclick="_chamSelTodos('${scope}','${campo}')" style="font-size:.72rem;font-weight:600;color:#15803D;background:none;border:none;cursor:pointer;padding:0">✓ Selecionar todos</button>
+          <button onclick="_chamLimparCampo('${scope}','${campo}')"${n > 0 ? '' : ' disabled'} style="font-size:.72rem;font-weight:600;color:${n > 0 ? '#2563EB' : '#CBD5E0'};background:none;border:none;cursor:${n > 0 ? 'pointer' : 'default'};padding:0">Limpar (${n})</button>
+        </div>
         <div style="max-height:250px;overflow-y:auto">${checks}
           <div class="cham-sem-result" style="display:none;padding:8px 10px;font-size:.8rem;color:#94A3B8">Nenhum resultado</div>
         </div>
@@ -2264,6 +2284,80 @@ function _multiDrop(scope, campo, label, opcoes, selSet, labelTodos) {
     </div>`;
 }
 
+// Barra de filtros (compartilhada) — botões Aplicar/Limpar + SLO/CSV opcionais
+function _chamBarHtml(scope, dropsHtml, opts) {
+  opts = opts || {};
+  const dirty = _filtDirty(scope);
+  const aplicar = `<button onclick="_chamAplicar('${scope}')"${dirty ? '' : ' disabled'}
+      style="padding:8px 16px;border:1px solid ${dirty ? '#2563EB' : '#CBD5E0'};border-radius:7px;background:${dirty ? '#2563EB' : '#EDF2F7'};font-size:.78rem;font-weight:700;color:${dirty ? '#fff' : '#94A3B8'};cursor:${dirty ? 'pointer' : 'default'};height:36px">✓ Aplicar${dirty ? ' •' : ''}</button>`;
+  const limpar = `<button onclick="_chamLimparTudo('${scope}')" style="padding:8px 14px;border:1px solid #CBD5E0;border-radius:7px;background:#fff;font-size:.78rem;font-weight:600;color:#475569;cursor:pointer;height:36px">✕ Limpar filtros</button>`;
+  const csv = opts.csv ? `<button onclick="exportClienteCSV()" style="padding:8px 14px;border:1px solid #BFDBFE;border-radius:7px;background:#EFF6FF;font-size:.78rem;font-weight:600;color:#2563EB;cursor:pointer;height:36px">⬇ Exportar CSV</button>` : '';
+  return `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:16px">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+        ${dropsHtml}
+        ${aplicar}
+        ${limpar}
+        ${csv}
+      </div>
+      ${opts.sloSeg ? `<div style="display:flex;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid #E2E8F0">${opts.sloSeg}</div>` : ''}
+      <div style="margin-top:8px;font-size:.72rem;color:#94A3B8;font-style:italic">${opts.hint || '💡 Marque as opções (use “Selecionar todos” e desmarque o que não quer) e clique em <b>Aplicar</b>.'}</div>
+      ${opts.semEntidade ? '<div style="margin-top:8px;font-size:.74rem;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:6px 10px">⚠️ Os dados ainda não contêm a coluna <b>entidade</b>. Reexecute o Apps Script (onTimeTrigger) para popular esse campo.</div>' : ''}
+    </div>`;
+}
+
+// Barra de filtros da guia Cliente (usa o rascunho _chamFiltros.cliente)
+function _renderClienteBar() {
+  const el = document.getElementById('cliente-filtros');
+  if (!el) return;
+  const pool = _clientePool();
+  const f = _chamFiltros.cliente;
+  const inSet = (s, v) => s.size === 0 || s.has(v);
+  const base    = pool.filter(r => inSet(f.fonte, r._fonte));
+  const baseMun = f.municipio.size ? base.filter(r => f.municipio.has(r.municipio || '')) : base;
+  const fonteOpts    = ['Suporte', 'Serviço'];
+  const municipios   = _uniqSort(base.map(r => r.municipio));
+  const entidades    = _uniqSort(baseMun.map(r => r.entidade));
+  const verticais    = _uniqSort(base.map(r => r.vertical));
+  const statuses     = _uniqSort(base.map(r => r.status));
+  const responsaveis = _uniqSort(base.map(r => r.responsavel));
+  const drops =
+      _multiDrop('cliente', 'fonte', 'Fonte', fonteOpts, f.fonte, 'Todas as fontes') +
+      _multiDrop('cliente', 'municipio', 'Município', municipios, f.municipio, 'Todos os municípios') +
+      _multiDrop('cliente', 'entidade', 'Entidade', entidades, f.entidade, 'Todas as entidades') +
+      _multiDrop('cliente', 'vertical', 'Vertical', verticais, f.vertical, 'Todas as verticais') +
+      _multiDrop('cliente', 'status', 'Status', statuses, f.status, 'Todos os status') +
+      _multiDrop('cliente', 'responsavel', 'Responsável', responsaveis, f.responsavel, 'Todos os responsáveis');
+  el.innerHTML = _chamBarHtml('cliente', drops, {
+    csv: true,
+    sloSeg: _sloSegHtml(_clienteSlo, '_setClienteSlo', 'cliente'),
+    semEntidade: base.every(r => !r.entidade || !String(r.entidade).trim())
+  });
+}
+
+// Barra de filtros das guias Suporte/Serviço (usa o rascunho _chamFiltros[source])
+function _renderChamBar(source) {
+  const el = document.getElementById(source + '-filtros');
+  if (!el) return;
+  const cfg = _chamadosCfg(source);
+  const f = _chamFiltros[source];
+  const baseMun = f.municipio.size ? cfg.all.filter(r => f.municipio.has(r.municipio || '')) : cfg.all;
+  const municipios   = _uniqSort(cfg.all.map(r => r.municipio));
+  const entidades    = _uniqSort(baseMun.map(r => r.entidade));
+  const verticais    = _uniqSort(cfg.all.map(r => r.vertical));
+  const statuses     = _uniqSort(cfg.all.map(r => r.status));
+  const responsaveis = _uniqSort(cfg.all.map(r => r.responsavel));
+  const drops =
+      _multiDrop(source, 'municipio', 'Município', municipios, f.municipio, 'Todos os municípios') +
+      _multiDrop(source, 'entidade', 'Entidade', entidades, f.entidade, 'Todas as entidades') +
+      _multiDrop(source, 'vertical', 'Vertical', verticais, f.vertical, 'Todas as verticais') +
+      _multiDrop(source, 'status', 'Status', statuses, f.status, 'Todos os status') +
+      _multiDrop(source, 'responsavel', 'Responsável', responsaveis, f.responsavel, 'Todos os responsáveis');
+  el.innerHTML = _chamBarHtml(source, drops, {
+    hint: '💡 Marque as opções (use “Selecionar todos” e desmarque o que não quer) e clique em <b>Aplicar</b>. Combina com o filtro das pizzas e o de SLO.',
+    semEntidade: cfg.all.every(r => !r.entidade || !String(r.entidade).trim())
+  });
+}
+
 function renderChamadosPorClienteFiltro() {
   const filtrosEl = document.getElementById('cliente-filtros');
   const contentEl = document.getElementById('cliente-content');
@@ -2277,47 +2371,18 @@ function renderChamadosPorClienteFiltro() {
     return;
   }
 
-  const f = _clienteFiltro;
+  _renderClienteBar();
+
+  // Listagem usa os filtros APLICADOS (+ SLO ao vivo)
+  const fa = _chamAplicado.cliente;
   const inSet = (set, val) => set.size === 0 || set.has(val); // Set vazio = sem filtro
-
-  // Base para as opções: aplica a fonte (e o município, para a cascata de entidade)
-  const base    = pool.filter(r => inSet(f.fonte, r._fonte));
-  const baseMun = f.municipio.size ? base.filter(r => f.municipio.has(r.municipio || '')) : base;
-
-  const fonteOpts  = ['Suporte', 'Serviço'];
-  const municipios = _uniqSort(base.map(r => r.municipio));
-  const entidades  = _uniqSort(baseMun.map(r => r.entidade));
-  const verticais  = _uniqSort(base.map(r => r.vertical));
-  const statuses   = _uniqSort(base.map(r => r.status));
-
-  // Aviso caso a base de dados ainda não tenha a coluna 'entidade' preenchida
-  const semEntidade = base.every(r => !r.entidade || !String(r.entidade).trim());
-
-  filtrosEl.innerHTML = `
-    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px">
-      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
-        ${_multiDrop('cliente', 'fonte', 'Fonte', fonteOpts, f.fonte, 'Todas as fontes')}
-        ${_multiDrop('cliente', 'municipio', 'Município', municipios, f.municipio, 'Todos os municípios')}
-        ${_multiDrop('cliente', 'entidade', 'Entidade', entidades, f.entidade, 'Todas as entidades')}
-        ${_multiDrop('cliente', 'vertical', 'Vertical', verticais, f.vertical, 'Todas as verticais')}
-        ${_multiDrop('cliente', 'status', 'Status', statuses, f.status, 'Todos os status')}
-        <button onclick="_chamLimparTudo('cliente')"
-          style="padding:8px 14px;border:1px solid #CBD5E0;border-radius:7px;background:#fff;font-size:.78rem;font-weight:600;color:#475569;cursor:pointer;height:36px">✕ Limpar filtros</button>
-        <button onclick="exportClienteCSV()"
-          style="padding:8px 14px;border:1px solid #BFDBFE;border-radius:7px;background:#EFF6FF;font-size:.78rem;font-weight:600;color:#2563EB;cursor:pointer;height:36px">⬇ Exportar CSV</button>
-      </div>
-      <div style="display:flex;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid #E2E8F0">${_sloSegHtml(_clienteSlo, '_setClienteSlo', 'cliente')}</div>
-      <div style="margin-top:8px;font-size:.72rem;color:#94A3B8;font-style:italic">💡 Você pode marcar mais de uma opção em cada filtro.</div>
-      ${semEntidade ? '<div style="margin-top:8px;font-size:.74rem;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:6px 10px">⚠️ Os dados ainda não contêm a coluna <b>entidade</b>. Reexecute o Apps Script (onTimeTrigger) para popular esse campo nos chamados.</div>' : ''}
-    </div>`;
-
-  // Aplica os filtros (multi-seleção: Set vazio = todos) + filtro de SLO
   let lista = _aplicaSloModo(pool.filter(r =>
-    inSet(f.fonte,     r._fonte) &&
-    inSet(f.municipio, r.municipio || '') &&
-    inSet(f.entidade,  r.entidade  || '') &&
-    inSet(f.vertical,  r.vertical  || '') &&
-    inSet(f.status,    r.status    || '')
+    inSet(fa.fonte,       r._fonte) &&
+    inSet(fa.municipio,   r.municipio   || '') &&
+    inSet(fa.entidade,    r.entidade    || '') &&
+    inSet(fa.vertical,    r.vertical    || '') &&
+    inSet(fa.status,      r.status      || '') &&
+    inSet(fa.responsavel, r.responsavel || '')
   ), _clienteSlo).sort((a, b) => _parseSloStr(a.slo_horas) - _parseSloStr(b.slo_horas));
 
   _clienteListaAtual = lista;
