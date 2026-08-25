@@ -1189,22 +1189,27 @@ function _fmtValorCompacto(n) {
   return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Ordena as linhas por competência (aceita "01/07/2026", "07/2026" ou "2026-07")
+// Chave AAAAMM da competência. Aceita "01/07/2026", "07/2026", "2026-07",
+// objeto Date e a data serializada do Sheets ("Wed Jul 01 2026 00:00:00 GMT-0300 (…)").
 function _compKey(c) {
+  const pad = n => String(n).padStart(2, '0');
+  if (c instanceof Date && !isNaN(c.getTime())) return c.getFullYear() + pad(c.getMonth() + 1);
   const s = String(c || '').trim();
-  let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if (m) return m[3] + m[2];
-  m = s.match(/^(\d{2})\/(\d{4})$/);              if (m) return m[2] + m[1];
-  m = s.match(/^(\d{4})-(\d{2})/);                if (m) return m[1] + m[2];
+  if (!s) return '';
+  let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if (m) return m[3] + m[2];   // 01/07/2026
+  m = s.match(/^(\d{2})\/(\d{4})$/);              if (m) return m[2] + m[1];   // 07/2026
+  m = s.match(/^(\d{4})-(\d{2})/);                if (m) return m[1] + m[2];   // 2026-07(-01)
+  const d = new Date(s);                                                        // fallback: data crua do Sheets
+  if (!isNaN(d.getTime())) return d.getFullYear() + pad(d.getMonth() + 1);
   return s;
 }
 
+const _MESES_ABREV = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
 function _fmtCompetencia(c) {
   const k = _compKey(c);
-  if (/^\d{6}$/.test(k)) {
-    const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-    return meses[parseInt(k.slice(4, 6), 10) - 1] + '/' + k.slice(0, 4);
-  }
-  return c || '';
+  if (/^\d{6}$/.test(k)) return _MESES_ABREV[parseInt(k.slice(4, 6), 10) - 1] + '/' + k.slice(0, 4);
+  return String(c || '');
 }
 
 function renderKpiRecorrente() {
@@ -1225,19 +1230,27 @@ function renderKpiRecorrente() {
 
   const atual = linhas[linhas.length - 1];
   const ant   = linhas.length > 1 ? linhas[linhas.length - 2] : null;
-  el.textContent = _fmtValorCompacto(atual.valor);
-  el.title = 'R$ ' + atual.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const exato = 'R$ ' + atual.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  el.textContent = _fmtValorCompacto(atual.valor);
+  el.title = exato;
+
+  // Linha 1: valor exato (fonte menor) · Linha 2: competência + variação
+  let variacao = '';
   if (ant && ant.valor > 0) {
     const delta = atual.valor - ant.valor;
     const pct   = Math.abs(delta / ant.valor * 100);
     const seta  = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+    const cor   = delta > 0 ? '#047857' : delta < 0 ? '#DC2626' : '#718096';
     el.style.color = delta < 0 ? '#DC2626' : '#047857';
-    elSub.textContent = `${_fmtCompetencia(atual.comp)} · ${seta} ${pct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% vs ${_fmtCompetencia(ant.comp)}`;
+    variacao = ` · <span style="color:${cor};font-weight:600">${seta} ${pct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</span>`;
   } else {
     el.style.color = '#047857';
-    elSub.textContent = `Competência ${_fmtCompetencia(atual.comp)}`;
   }
+
+  elSub.innerHTML =
+    `<span style="display:block;font-size:.78rem;font-weight:600;color:#334155;letter-spacing:-.01em">${exato}</span>` +
+    `<span style="display:block;font-size:.7rem;color:#94A3B8;margin-top:1px">${_fmtCompetencia(atual.comp)}${variacao}</span>`;
 }
 
 // NPS = % Promotores (9-10) − % Detratores (0-6). Neutros (7-8) não contam.
