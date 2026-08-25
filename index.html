@@ -845,12 +845,14 @@ function renderWeeklyComparison(data) {
 
   const fmtD = (iso) => { if (!iso) return '—'; const [, m, d] = iso.split('-'); return `${d}/${m}`; };
 
-  // accentColor: cor da borda lateral do card
-  const metricCard = (label, curr, prev, lessIsBetter, accentColor) => {
+  // accentColor: cor da borda lateral do card; extra: HTML opcional (ex.: quebra por sub-aba)
+  const metricCard = (label, curr, prev, lessIsBetter, accentColor, extra) => {
+    extra = extra || '';
     if (curr === null || prev === null) {
       return `<div style="border-left:3px solid ${accentColor};padding:4px 0 4px 14px">
         <div style="font-size:.72rem;font-weight:700;color:#718096;margin-bottom:10px">${label}</div>
         <div style="font-size:1.1rem;font-weight:800;color:#CBD5E0">—</div>
+        ${extra}
       </div>`;
     }
     const delta = curr - prev;
@@ -870,8 +872,22 @@ function renderWeeklyComparison(data) {
         <span style="font-size:1.55rem;font-weight:800;color:#1A202C;line-height:1">${curr}</span>
       </div>
       <span style="display:inline-block;font-size:.73rem;font-weight:700;color:${pillColor};background:${pillBg};padding:2px 9px;border-radius:20px">${pillTxt}</span>
+      ${extra}
     </div>`;
   };
+
+  // Quebra das Implantações Pendentes (atual) por sub-aba, a partir das issues + lista de adiadas
+  const _implIssues = state.implantacoesIssues || [];
+  let implExtra = '';
+  if (_implIssues.length) {
+    const adi   = _implAdiadasSet();
+    const nEste = _implIssues.filter(r => !adi.has((r.key || '').trim())).length;
+    const nAdi  = _implIssues.filter(r =>  adi.has((r.key || '').trim())).length;
+    implExtra = `<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        <span style="font-size:.7rem;font-weight:700;color:#2B6CB0;background:#EBF4FF;border:1px solid #BFDBFE;padding:2px 9px;border-radius:20px">📌 Este ano: ${nEste}</span>
+        <span style="font-size:.7rem;font-weight:700;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;padding:2px 9px;border-radius:20px">📅 2027: ${nAdi}</span>
+      </div>`;
+  }
 
   el.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:6px">
@@ -883,7 +899,7 @@ function renderWeeklyComparison(data) {
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;border-top:1px solid #EDF2F7;padding-top:14px">
       ${metricCard('Chamados de Suporte',    data.suporte.curr,      data.suporte.prev,      true,  '#3182CE')}
       ${metricCard('Chamados de Serviço',    data.servico.curr,      data.servico.prev,      true,  '#DD6B20')}
-      ${metricCard('Implantações Pendentes', data.implantacoes.curr, data.implantacoes.prev, false, '#7C3AED')}
+      ${metricCard('Implantações Pendentes', data.implantacoes.curr, data.implantacoes.prev, false, '#7C3AED', implExtra)}
     </div>`;
 }
 
